@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CBSE CBP Certificate Upload Portal</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- PDF.js CDN -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <!-- Supabase JS v2 CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+    .spinner {
+      border: 3px solid rgba(255,255,255,0.3);
+      border-radius: 50%;
+      border-top: 3px solid #fff;
+      width: 18px;
+      height: 18px;
+      animation: spin 1s linear infinite;
+      display: inline-block;
+    }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col text-gray-800">
+
+  <!-- WhatsApp / In-App Browser Warning Banner -->
+  <div id="whatsapp-warning" class="hidden bg-amber-500 text-white px-4 py-3 text-sm shadow-md">
+    <div class="max-w-3xl mx-auto flex items-start gap-3">
+      <svg class="w-6 h-6 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+      </svg>
+      <div>
+        <p class="font-bold">WhatsApp Browser Detected!</p>
+        <p class="text-xs sm:text-sm mt-0.5">WhatsApp ke andar file upload karne mein dikkat aa sakti hai. Kripya upar right side mein <strong>3 dots (⋮)</strong> par click karke <strong>"Open in Chrome / Browser"</strong> select karein.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Header -->
+  <header class="bg-indigo-900 text-white shadow-lg">
+    <div class="max-w-4xl mx-auto px-4 py-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div>
+        <span class="inline-block bg-indigo-700 text-indigo-100 text-xs font-semibold px-2.5 py-0.5 rounded-full uppercase tracking-wider mb-1">CBSE Training Records</span>
+        <h1 class="text-xl sm:text-2xl font-bold tracking-tight">CBP Certificate Upload Portal</h1>
+        <p class="text-indigo-200 text-xs sm:text-sm mt-0.5">Select your name, verify PDF automatically, and sync to school database</p>
+      </div>
+      <div class="flex items-center gap-2">
+        <span id="db-status-badge" class="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-indigo-800 text-indigo-200 border border-indigo-700">
+          <span class="w-2 h-2 rounded-full bg-yellow-400"></span> Checking Supabase...
+        </span>
+        <button onclick="toggleAdminModal()" class="text-xs bg-indigo-800 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg border border-indigo-600 transition">
+          ⚙️ Admin / Keys
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="flex-grow max-w-4xl w-full mx-auto px-4 py-6 space-y-6">
+
+    <!-- Step 1: Select Teacher -->
+    <section class="bg-white rounded-2xl shadow-sm border border-gray-200 p-5 sm:p-6">
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4">
+        <label for="teacher-select" class="block text-base font-bold text-gray-900">
+          1. Select Your Name (Teacher Name & ID)
+        </label>
+        <span class="text-xs text-gray-500">Total Teachers: <strong id="total-teachers-count">75</strong></span>
+      </div>
+
+      <!-- Search Filter + Dropdown -->
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div class="sm:col-span-1">
+          <input type="text" id="teacher-search" placeholder="🔍 Type name to filter..."
+            class="w-full px-3.5 py-2.5 text-sm border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition" />
+        </div>
+        <div class="sm:col-span-2">
+          <select id="teacher-select"
+            class="w-full px-3.5 py-2.5 text-sm font-medium bg-gray-50 border border-gray-300 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition">
+            <option value="">-- Choose Teacher Name --</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Teacher Info Summary Card -->
+      <div id="teacher-summary" class="hidden mt-5 pt-4 border-t border-gray-100 flex flex-wrap items-center justify-between gap-4 bg-indigo-50/60 p-4 rounded-xl">
+        <div>
+          <p class="text-xs text-indigo-600 font-semibold uppercase">Selected Teacher</p>
+          <h2 id="selected-teacher-name" class="text-lg font-bold text-gray-900"></h2>
+          <p class="text-xs text-gray-600 mt-0.5">Teacher ID: <span id="selected-teacher-id" class="font-mono font-semibold text-gray-800"></span></p>
+        </div>
+        <div class="flex gap-3 text-center">
+          <div class="bg-white px-3.5 py-2 rounded-lg border border-indigo-100 shadow-xs">
+            <p class="text-xs text-gray-500">Assigned CBPs</p>
+            <p id="stat-total" class="text-lg font-bold text-indigo-700">0</p>
+          </div>
+          <div class="bg-white px-3.5 py-2 rounded-lg border border-emerald-100 shadow-xs">
+            <p class="text-xs text-gray-500">Uploaded</p>
+            <p id="stat-uploaded" class="text-lg font-bold text-emerald-600">0</p>
+          </div>
+          <div class="bg-white px-3.5 py-2 rounded-lg border border-amber-100 shadow-xs">
+            <p class="text-xs text-gray-500">Pending</p>
+            <p id="stat-pending" class="text-lg font-bold text-amber-600">0</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Step 2: CBP Modules List & Upload -->
+    <section id="cbp-list-section" class="hidden space-y-4">
+      <div class="flex items-center justify-between">
+        <h3 class="text-base font-bold text-gray-900">2. Attended CBP Modules (Upload PDF Certificates)</h3>
+        <span class="text-xs text-gray-500 bg-white px-2.5 py-1 rounded-md border border-gray-200">Only .PDF files allowed</span>
+      </div>
+
+      <div id="cbp-cards-container" class="space-y-4">
+        <!-- Dynamic CBP Cards injected here -->
+      </div>
+    </section>
+
+    <!-- Empty State -->
+    <div id="empty-state" class="bg-white rounded-2xl border border-dashed border-gray-300 p-10 text-center">
+      <div class="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-full flex items-center justify-center mx-auto mb-3">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+        </svg>
+      </div>
+      <h3 class="text-base font-semibold text-gray-900">No Teacher Selected</h3>
+      <p class="text-sm text-gray-500 mt-1 max-w-md mx-auto">Upar diye gaye dropdown se apna naam chunein. Aapke saamne aapke saare CBP modules aur unke certificate upload karne ke buttons khul jayenge.</p>
+    </div>
+
+  </main>
+
+  <!-- Admin / Supabase Config & Report Modal -->
+  <div id="admin-modal" class="hidden fixed inset-0 bg-black/50 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 shadow-2xl space-y-5">
+      <div class="flex items-center justify-between border-b pb-3">
+        <h3 class="text-lg font-bold text-gray-900">Supabase Configuration & Admin Status</h3>
+        <button onclick="toggleAdminModal()" class="text-gray-400 hover:text-gray-700 text-xl font-bold">&times;</button>
+      </div>
+
+      <div class="bg-blue-50 border border-blue-200 rounded-xl p-3.5 text-xs text-blue-800 space-y-1">
+        <p class="font-bold">Setup Instructions:</p>
+        <p>1. Apne Supabase Project se <strong>Project URL</strong> aur <strong>Anon Public Key</strong> neeche paste karein (ya HTML file ke andar hardcoded `SUPABASE_URL` aur `SUPABASE_ANON_KEY` mein daal dein taaki har teacher ke phone par automatically connect rahe).</p>
+        <p>2. Supabase Storage mein <code>cbp-certificates</code> naam ka <strong>Public Bucket</strong> banayein.</p>
+      </div>
+
+      <div class="space-y-3">
+        <div>
+          <label class="block text-xs font-semibold text-gray-700 mb-1">Supabase Project URL</label>
+          <input type="text" id="cfg-url" placeholder="https://xyzcompany.supabase.co"
+            class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" />
+        </div>
+        <div>
+          <label class="block text-xs font-semibold text-gray-700 mb-1">Supabase Anon Public Key</label>
+          <input type="text" id="cfg-key" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+            class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" />
+        </div>
+        <div class="flex items-center justify-between pt-2">
+          <label class="inline-flex items-center gap-2 text-xs font-medium text-gray-700 cursor-pointer">
+            <input type="checkbox" id="strict-verify-toggle" checked class="rounded text-indigo-600 focus:ring-indigo-500" />
+            Strict PDF Verification (Check Teacher Name & Topic inside PDF)
+          </label>
+          <button onclick="saveSupabaseConfig()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition">
+            Save & Connect
+          </button>
+        </div>
+      </div>
+
+      <!-- Admin Quick Summary -->
+      <div class="border-t pt-4">
+        <div class="flex items-center justify-between mb-2">
+          <h4 class="text-sm font-bold text-gray-800">Uploaded Certificates Log (Live from Supabase)</h4>
+          <button onclick="exportUploadedCSV()" class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg font-medium">
+            📥 Download CSV Report
+          </button>
+        </div>
+        <div id="admin-records-list" class="max-h-48 overflow-y-auto border border-gray-200 rounded-lg divide-y text-xs">
+          <p class="p-3 text-gray-500 text-center">Connect Supabase to view live uploaded records.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="text-center text-xs text-gray-400 py-5 border-t border-gray-200 bg-white mt-auto">
+    CBSE Capacity Building Programme (CBP) Certificate Management System &bull; Client-Side PDF Verification Powered by PDF.js & Supabase
+  </footer>
+
+  <script>
+    // =========================================================================
+    // 1. SUPABASE CONFIGURATION (Yahan apni keys permanent paste kar sakte hain)
+    // =========================================================================
+    const HARDCODED_SUPABASE_URL = "https://kclurppujjhrzwpawals.supabase.co";
+	const HARDCODED_SUPABASE_ANON_KEY = "sb_publishable_cLEsEEvnJoQsUHKRS4gVLw_QHlmJSfH";
+    const STORAGE_BUCKET = "cbp-certificates";
+
+    // =========================================================================
+    // 2. TEACHERS & CBP MASTER DATA (Extracted from Complete_Teachers_CBP_Report.xlsx)
+    // =========================================================================
+    const TEACHERS_DATA = [{"sr_no": 1, "teacher_id": "604353", "name": "Renu Malik", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Accountancy (Senior Secondary)", "date": "28/11/2026 29/11/2026", "hours": 12}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Active Learning", "date": "27/06/2026", "hours": 4}]}, {"sr_no": 2, "teacher_id": "2751800", "name": "ANCHAL KAMBOJ", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Mathematics (Secondary)", "date": "02/01/2027 03/01/2027", "hours": 12}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}]}, {"sr_no": 3, "teacher_id": "1645690", "name": "Anju Sharma", "cbps": [{"domain": "Domain 1", "topic": "Life Skills (Advance)", "date": "23/01/2027", "hours": 6}, {"domain": "Domain 2", "topic": "Storytelling as Pedagogy", "date": "05/12/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Biology (Senior Secondary)", "date": "10/10/2026 to 11/10/2026", "hours": 12}]}, {"sr_no": 4, "teacher_id": "2274610", "name": "Anuradha", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Mathematics (Secondary)", "date": "02/01/2027 03/01/2027", "hours": 12}]}, {"sr_no": 5, "teacher_id": "3397337", "name": "ARPITRAMA BHOWMICK", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 2", "topic": "Science (Secondary)", "date": "06/02/2027 07/02/2027", "hours": 12}]}, {"sr_no": 6, "teacher_id": "604358", "name": "Ashish Bhatia", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Mathematics (Secondary)", "date": "02/01/2027 03/01/2027", "hours": 12}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}]}, {"sr_no": 7, "teacher_id": "3391491", "name": "BHARTI BHATT", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}]}, {"sr_no": 8, "teacher_id": "1980836", "name": "BOBY", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Mathematics (Secondary)", "date": "02/01/2027 03/01/2027", "hours": 12}]}, {"sr_no": 9, "teacher_id": "2852981", "name": "CHAND DEEP KAUR", "cbps": [{"domain": "Domain 1", "topic": "Social Emotional Learning", "date": "13/02/2027", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Science (Secondary)", "date": "06/02/2027 07/02/2027", "hours": 12}]}, {"sr_no": 10, "teacher_id": "3394959", "name": "DAISY LUTHRA", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}]}, {"sr_no": 11, "teacher_id": "3159577", "name": "DEEPIKA BAKSHI", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "National Education Policy 2020", "date": "26/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Mathematics (Secondary)", "date": "02/01/2027 03/01/2027", "hours": 12}]}, {"sr_no": 12, "teacher_id": "3025838", "name": "Dharamveer", "cbps": [{"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 2", "topic": "Economics (Senior Secondary)", "date": "28/11/2026 to 29/11/2026", "hours": 12}]}, {"sr_no": 13, "teacher_id": "2406658", "name": "Diksha", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Storytelling as Pedagogy", "date": "05/12/2026", "hours": 4}, {"domain": "Domain 2", "topic": "Accountancy (Senior Secondary)", "date": "28/11/2026 29/11/2026", "hours": 12}]}, {"sr_no": 14, "teacher_id": "1024000", "name": "Divya", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}]}, {"sr_no": 15, "teacher_id": "2238045", "name": "GITA", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Science (Secondary)", "date": "06/02/2027 07/02/2027", "hours": 12}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}]}, {"sr_no": 16, "teacher_id": "2738495", "name": "GURPREET KAUR", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Storytelling as Pedagogy", "date": "05/12/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "English Core (Senior Secondary)", "date": "11/07/2026 12/07/2026", "hours": 12}]}, {"sr_no": 17, "teacher_id": "1019270", "name": "Gurpreet Kaur", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Storytelling as Pedagogy", "date": "05/12/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Python (Senior Secondary)", "date": "16/01/2027 17/01/2027", "hours": 12}]}, {"sr_no": 18, "teacher_id": "604373", "name": "Gurpreet Kaur", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Storytelling as Pedagogy", "date": "05/12/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Economics (Senior Secondary)", "date": "28/11/2026 29/11/2026", "hours": 12}]}, {"sr_no": 19, "teacher_id": "2852024", "name": "JAGBIR SINGH", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Physical Education (Senior Secondary Level)", "date": "09/01/2027 10/01/2027", "hours": 12}]}, {"sr_no": 20, "teacher_id": "3228945", "name": "JAIDEEP KUMAR", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "National Education Policy 2020", "date": "26/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Mathematics (Secondary)", "date": "02/01/2027 03/01/2027", "hours": 12}]}, {"sr_no": 21, "teacher_id": "604424", "name": "Jasvinder", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Punjabi", "date": "28/11/2026 to 29/11/2026", "hours": 12}]}, {"sr_no": 22, "teacher_id": "1980852", "name": "JYOTI", "cbps": [{"domain": "Domain 1", "topic": "SOCIAL EMOTIONAL LEARNING", "date": "13/02/2027", "hours": 6}, {"domain": "Domain 2", "topic": "Storytelling as Pedagogy", "date": "05/12/2026", "hours": 4}, {"domain": "Domain 3", "topic": "National Education Policy 2020", "date": "26/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Mathematics (Secondary)", "date": "02/01/2027 03/01/2027", "hours": 0}]}, {"sr_no": 23, "teacher_id": "3391444", "name": "JYOTI", "cbps": [{"domain": "Domain 1", "topic": "SOCIAL EMOTIONAL LEARNING", "date": "13/02/2027", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}]}, {"sr_no": 24, "teacher_id": "2788673", "name": "KANIKA", "cbps": [{"domain": "Domain 1", "topic": "SOCIAL EMOTIONAL LEARNING", "date": "13/02/2027", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "National Education Policy 2020", "date": "26/12/2026", "hours": 3}]}, {"sr_no": 25, "teacher_id": "3365157", "name": "KAPIL DEV", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Physical Education (Senior Secondary Level)", "date": "09/01/2027 to 10/01/2027", "hours": 12}]}, {"sr_no": 26, "teacher_id": "3089273", "name": "KAVITA RANI", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Social Science (Secondary)", "date": "08/08/2026 09/08/2026", "hours": 12}]}, {"sr_no": 27, "teacher_id": "1020274", "name": "Kavita", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Mathematics (Secondary)", "date": "02/01/2027 03/01/2027", "hours": 12}]}, {"sr_no": 28, "teacher_id": "1325527", "name": "KOMPAL", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Social Science (Secondary)", "date": "08/08/2026 09/08/2026", "hours": 12}]}, {"sr_no": 29, "teacher_id": "3423306", "name": "MADHU BALA", "cbps": [{"domain": "Domain 3", "topic": "National Education Policy 2020", "date": "26/12/2026", "hours": 3}]}, {"sr_no": 30, "teacher_id": "1371032", "name": "Mamta Yadav", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Social Science (Secondary)", "date": "08/08/2026 09/08/2026", "hours": 12}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}]}, {"sr_no": 31, "teacher_id": "1625092", "name": "Mandeep Singh", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Physics (Senior Secondary)", "date": "26/12/2026 27/12/2026", "hours": 12}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}]}, {"sr_no": 32, "teacher_id": "1961050", "name": "Manisha Devi", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Social Science (Secondary)", "date": "08/08/2026 09/08/2026", "hours": 12}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}]}, {"sr_no": 33, "teacher_id": "3004531", "name": "MANPREET KAUR", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "English Core (Senior Secondary)", "date": "10/10/2026 to 11/10/2026", "hours": 12}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Storytelling as Pedagogy", "date": "05/12/2026", "hours": 4}]}, {"sr_no": 34, "teacher_id": "1325307", "name": "Manpreet Kaur", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Accountancy (Senior Secondary)", "date": "28/11/2026 to 29/11/2026", "hours": 12}]}, {"sr_no": 35, "teacher_id": "2109015", "name": "MONIKA VERMA", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Business Studies (Senior Secondary)", "date": "11/07/2026 12/07/2026", "hours": 12}]}, {"sr_no": 36, "teacher_id": "2028137", "name": "Mamta Rani", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Storytelling as Pedagogy", "date": "05/12/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}]}, {"sr_no": 37, "teacher_id": "2037275", "name": "Parul Sharma", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}]}, {"sr_no": 38, "teacher_id": "3332145", "name": "MUSKAN SHARMA", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Social Science (Secondary)", "date": "08/08/2026 09/08/2026", "hours": 12}]}, {"sr_no": 39, "teacher_id": "1486199", "name": "Neeru Arora", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Mathematics (Secondary)", "date": "02/01/2027 03/01/2027", "hours": 12}]}, {"sr_no": 40, "teacher_id": "2028265", "name": "NEERU MEHTA", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}]}, {"sr_no": 41, "teacher_id": "1327869", "name": "Neetu Kaur", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}]}, {"sr_no": 42, "teacher_id": "3026170", "name": "NIKITA KUMARI", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Python (Senior Secondary)", "date": "16/01/2027 17/01/2027", "hours": 12}]}, {"sr_no": 43, "teacher_id": "3026191", "name": "PARMINDER GULATI", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Physical Education (Senior Secondary Level)", "date": "09/01/2027 to 10/01/2027", "hours": 12}]}, {"sr_no": 44, "teacher_id": "3159559", "name": "PAYAL GARG", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}]}, {"sr_no": 45, "teacher_id": "3424232", "name": "POOJA SHARMA", "cbps": [{"domain": "Domain 1", "topic": "SOCIAL EMOTIONAL LEARNING", "date": "13/02/2027", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "National Education Policy 2020", "date": "26/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Mathematics (Secondary)", "date": "02/01/2027 03/01/2027", "hours": 12}]}, {"sr_no": 46, "teacher_id": "1375887", "name": "Poonam Sharma", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}]}, {"sr_no": 47, "teacher_id": "2112937", "name": "Prabhjot Kaur", "cbps": [{"domain": "Domain 1", "topic": "SOCIAL EMOTIONAL LEARNING", "date": "13/02/2027", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "National Education Policy 2020", "date": "26/12/2026", "hours": 3}]}, {"sr_no": 48, "teacher_id": "3395364", "name": "PREET", "cbps": []}, {"sr_no": 49, "teacher_id": "3000094", "name": "PREETI DIWAN", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}]}, {"sr_no": 50, "teacher_id": "2788739", "name": "RACHNA KAMBOJ", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}]}, {"sr_no": 51, "teacher_id": "604418", "name": "Rajeev", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}]}, {"sr_no": 52, "teacher_id": "3089376", "name": "REENA RANA", "cbps": [{"domain": "Domain 1", "topic": "Life Skills (Advance)", "date": "23/01/2027", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}]}, {"sr_no": 53, "teacher_id": "3161788", "name": "REENA SHUKLA", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Mathematics (Secondary)", "date": "02/01/2027 03/01/2027", "hours": 12}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}]}, {"sr_no": 54, "teacher_id": "1964741", "name": "REETA", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}]}, {"sr_no": 55, "teacher_id": "2238085", "name": "REETA", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Chemistry (Senior Secondary)", "date": "12/12/2026 13/12/2026", "hours": 12}]}, {"sr_no": 56, "teacher_id": "3064928", "name": "REKHA RANI", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "National Education Policy 2020", "date": "26/12/2026", "hours": 3}]}, {"sr_no": 57, "teacher_id": "2875095", "name": "Rekha Sharma", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Storytelling as Pedagogy", "date": "20/02/2027", "hours": 4}, {"domain": "Domain 3", "topic": "National Education Policy 2020", "date": "26/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "English Core (Senior Secondary)", "date": "10/10/2026 11/10/2026", "hours": 12}]}, {"sr_no": 58, "teacher_id": "2031147", "name": "Rinky Sabharwal", "cbps": [{"domain": "Domain 1", "topic": "SOCIAL EMOTIONAL LEARNING", "date": "13/02/2027", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Mathematics (Secondary)", "date": "02/01/2027 03/01/2027", "hours": 12}]}, {"sr_no": 59, "teacher_id": "604357", "name": "Ritika", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Storytelling as Pedagogy", "date": "05/12/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Biology (Senior Secondary)", "date": "10/10/2026 11/10/2026", "hours": 12}]}, {"sr_no": 60, "teacher_id": "604433", "name": "Ritu", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "National Education Policy 2020", "date": "26/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Mathematics (Secondary)", "date": "02/01/2027 03/01/2027", "hours": 12}]}, {"sr_no": 61, "teacher_id": "3344007", "name": "SATNAM KAUR", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}]}, {"sr_no": 62, "teacher_id": "2587655", "name": "Satwinder Kaur", "cbps": [{"domain": "Domain 1", "topic": "Life Skills (Advance)", "date": "23/01/2027", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "National Education Policy 2020", "date": "26/12/2026", "hours": 3}]}, {"sr_no": 63, "teacher_id": "2943940", "name": "Shikha Rani", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Storytelling as Pedagogy", "date": "05/12/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "English Core (Senior Secondary)", "date": "10/10/2026 to 11/10/2026", "hours": 12}]}, {"sr_no": 64, "teacher_id": "2506479", "name": "SHILPA SHARMA", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Storytelling as Pedagogy", "date": "05/12/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "English Core (Senior Secondary)", "date": "10/10/2026 to 11/10/2026", "hours": 12}]}, {"sr_no": 65, "teacher_id": "3397112", "name": "SIMMI", "cbps": [{"domain": "Domain 1", "topic": "Life Skills (Advance)", "date": "23/01/2027", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Mathematics (Secondary)", "date": "02/01/2027 03/01/2027", "hours": 12}]}, {"sr_no": 66, "teacher_id": "2923054", "name": "SONAM GULATI", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}]}, {"sr_no": 67, "teacher_id": "604366", "name": "Sonia kohli", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Hindi Course - B (Secondary)", "date": "16/08/2026 17/08/2026", "hours": 12}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}]}, {"sr_no": 68, "teacher_id": "604367", "name": "Sucheta", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Accountancy (Senior Secondary)", "date": "28/11/2026 to 29/11/2026", "hours": 12}]}, {"sr_no": 69, "teacher_id": "1625186", "name": "Sulekha Rani", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Chemistry (Senior Secondary)", "date": "12/12/2026", "hours": 12}]}, {"sr_no": 70, "teacher_id": "604355", "name": "Sunita Beri", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Hindi Course - B (Secondary)", "date": "16/08/2026 17/08/2026", "hours": 12}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}]}, {"sr_no": 71, "teacher_id": "3166774", "name": "SURBHI GARG", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Mathematics (Secondary)", "date": "02/01/2027 03/01/2027", "hours": 12}]}, {"sr_no": 72, "teacher_id": "993238", "name": "Tarun Kalra", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}]}, {"sr_no": 73, "teacher_id": "3004491", "name": "VANDANA BEDI", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Science (Secondary)", "date": "06/02/2027 07/02/2027", "hours": 12}]}, {"sr_no": 74, "teacher_id": "1325354", "name": "Vaneeta", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}, {"domain": "Domain 2", "topic": "Science (Secondary)", "date": "06/02/2027 07/02/2027", "hours": 12}]}, {"sr_no": 75, "teacher_id": "3397160", "name": "VIKRAMJEET SINGH", "cbps": [{"domain": "Domain 1", "topic": "Gender Sensitivity in Schools", "date": "24/10/2026", "hours": 6}, {"domain": "Domain 2", "topic": "Educating Parents about Education", "date": "10/10/2026", "hours": 4}, {"domain": "Domain 3", "topic": "Happy Classroom", "date": "19/12/2026", "hours": 3}]}];
+
+    // Configure PDF.js worker
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    let supabaseClient = null;
+    let uploadedRecords = []; // Stores records fetched from Supabase DB
+    let currentTeacher = null;
+
+    // =========================================================================
+    // 3. INITIALIZATION & WHATSAPP BROWSER CHECK
+    // =========================================================================
+    window.addEventListener('DOMContentLoaded', () => {
+      detectInAppBrowser();
+      populateTeacherDropdown(TEACHERS_DATA);
+      initSupabase();
+
+      document.getElementById('teacher-search').addEventListener('input', (e) => {
+        const term = e.target.value.toLowerCase().trim();
+        const filtered = TEACHERS_DATA.filter(t =>
+          t.name.toLowerCase().includes(term) || t.teacher_id.includes(term)
+        );
+        populateTeacherDropdown(filtered);
+        if (filtered.length === 1) {
+          document.getElementById('teacher-select').value = filtered[0].teacher_id;
+          handleTeacherSelect(filtered[0].teacher_id);
+        }
+      });
+
+      document.getElementById('teacher-select').addEventListener('change', (e) => {
+        handleTeacherSelect(e.target.value);
+      });
+    });
+
+    function detectInAppBrowser() {
+      const ua = navigator.userAgent || navigator.vendor || window.opera;
+      const isWhatsApp = /WhatsApp/i.test(ua);
+      const isFBorInsta = /FBAN|FBAV|Instagram/i.test(ua);
+      if (isWhatsApp || isFBorInsta) {
+        document.getElementById('whatsapp-warning').classList.remove('hidden');
+      }
+    }
+
+    function getSupabaseCreds() {
+      const savedUrl = localStorage.getItem('cbp_supabase_url');
+      const savedKey = localStorage.getItem('cbp_supabase_key');
+      const url = (HARDCODED_SUPABASE_URL !== "YOUR_SUPABASE_PROJECT_URL" && HARDCODED_SUPABASE_URL) ? HARDCODED_SUPABASE_URL : savedUrl;
+      const key = (HARDCODED_SUPABASE_ANON_KEY !== "YOUR_SUPABASE_ANON_KEY" && HARDCODED_SUPABASE_ANON_KEY) ? HARDCODED_SUPABASE_ANON_KEY : savedKey;
+      return { url, key };
+    }
+
+    async function initSupabase() {
+      const { url, key } = getSupabaseCreds();
+      const badge = document.getElementById('db-status-badge');
+
+      if (!url || !key) {
+        badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-red-400"></span> Demo Mode (Set Supabase Keys)`;
+        return;
+      }
+
+      document.getElementById('cfg-url').value = url;
+      document.getElementById('cfg-key').value = key;
+
+      try {
+        supabaseClient = window.supabase.createClient(url, key);
+        const { data, error } = await supabaseClient
+          .from('cbp_certificates')
+          .select('*')
+          .order('uploaded_at', { ascending: false });
+
+        if (error) throw error;
+        uploadedRecords = data || [];
+        badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400"></span> Supabase Connected`;
+        renderAdminRecords();
+        if (currentTeacher) renderTeacherCBPs(currentTeacher);
+      } catch (err) {
+        console.error("Supabase init error:", err);
+        badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-400"></span> DB Table Error (Check Setup)`;
+      }
+    }
+
+    function saveSupabaseConfig() {
+      const url = document.getElementById('cfg-url').value.trim();
+      const key = document.getElementById('cfg-key').value.trim();
+      if (!url || !key) {
+        alert("Please enter both Supabase URL and Anon Key.");
+        return;
+      }
+      localStorage.setItem('cbp_supabase_url', url);
+      localStorage.setItem('cbp_supabase_key', key);
+      initSupabase();
+      toggleAdminModal();
+    }
+
+    function toggleAdminModal() {
+      document.getElementById('admin-modal').classList.toggle('hidden');
+    }
+
+    // =========================================================================
+    // 4. DROPDOWN & TEACHER MODULE RENDERING
+    // =========================================================================
+    function populateTeacherDropdown(list) {
+      const select = document.getElementById('teacher-select');
+      const currentVal = select.value;
+      select.innerHTML = `<option value="">-- Choose Teacher Name (${list.length}) --</option>`;
+      list.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.teacher_id;
+        opt.textContent = `${t.name} (ID: ${t.teacher_id})`;
+        select.appendChild(opt);
+      });
+      if (list.some(t => t.teacher_id === currentVal)) {
+        select.value = currentVal;
+      }
+    }
+
+    function handleTeacherSelect(teacherId) {
+      if (!teacherId) {
+        currentTeacher = null;
+        document.getElementById('teacher-summary').classList.add('hidden');
+        document.getElementById('cbp-list-section').classList.add('hidden');
+        document.getElementById('empty-state').classList.remove('hidden');
+        return;
+      }
+
+      currentTeacher = TEACHERS_DATA.find(t => t.teacher_id === teacherId);
+      if (!currentTeacher) return;
+
+      document.getElementById('empty-state').classList.add('hidden');
+      document.getElementById('teacher-summary').classList.remove('hidden');
+      document.getElementById('cbp-list-section').classList.remove('hidden');
+
+      document.getElementById('selected-teacher-name').textContent = currentTeacher.name;
+      document.getElementById('selected-teacher-id').textContent = currentTeacher.teacher_id;
+
+      renderTeacherCBPs(currentTeacher);
+    }
+
+    function renderTeacherCBPs(teacher) {
+      const container = document.getElementById('cbp-cards-container');
+      container.innerHTML = '';
+
+      let uploadedCount = 0;
+
+      teacher.cbps.forEach((cbp, index) => {
+        // Check if already uploaded in Supabase records (or session)
+        const existingRecord = uploadedRecords.find(r =>
+          String(r.teacher_id) === String(teacher.teacher_id) &&
+          r.cbp_topic.toLowerCase().trim() === cbp.topic.toLowerCase().trim()
+        );
+
+        if (existingRecord) uploadedCount++;
+
+        const cardId = `cbp-card-${index}`;
+        const fileInputId = `file-input-${index}`;
+        const statusBoxId = `status-box-${index}`;
+
+        const card = document.createElement('div');
+        card.id = cardId;
+        card.className = `bg-white rounded-2xl border ${existingRecord ? 'border-emerald-200 bg-emerald-50/20' : 'border-gray-200'} p-5 shadow-xs transition`;
+
+        card.innerHTML = `
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div class="space-y-1.5">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="text-xs font-bold px-2.5 py-0.5 rounded-md bg-indigo-100 text-indigo-800">${cbp.domain}</span>
+                <span class="text-xs font-medium text-gray-500">📅 ${cbp.date || 'Date N/A'}</span>
+                <span class="text-xs font-medium text-gray-500">⏱️ ${cbp.hours} Hrs</span>
+              </div>
+              <h4 class="text-base font-bold text-gray-900">${cbp.topic}</h4>
+              <p class="text-xs text-gray-500">Folder Path: <code class="bg-gray-100 px-1.5 py-0.5 rounded text-gray-700">${sanitizeFolderName(teacher.name)}_${teacher.teacher_id}/</code></p>
+            </div>
+
+            <div class="flex-shrink-0">
+              ${existingRecord ? `
+                <div class="flex flex-col sm:items-end gap-1.5">
+                  <span class="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-100 px-3 py-1.5 rounded-full">
+                    ✅ Verified & Uploaded
+                  </span>
+                  <div class="flex items-center gap-2">
+                    <a href="${existingRecord.file_url}" target="_blank" class="text-xs text-indigo-600 hover:underline font-medium">View PDF ↗</a>
+                    <label for="${fileInputId}" class="cursor-pointer text-xs text-gray-500 hover:text-gray-800 underline">Re-upload</label>
+                    <input type="file" id="${fileInputId}" accept="application/pdf" class="hidden" onchange="processAndUploadPDF(event, ${index})" />
+                  </div>
+                </div>
+              ` : `
+                <div>
+                  <label for="${fileInputId}" id="btn-label-${index}"
+                    class="cursor-pointer inline-flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-semibold px-4 py-2.5 rounded-xl shadow-xs transition w-full sm:w-auto">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                    </svg>
+                    <span>Upload Certificate PDF</span>
+                  </label>
+                  <input type="file" id="${fileInputId}" accept="application/pdf" class="hidden" onchange="processAndUploadPDF(event, ${index})" />
+                </div>
+              `}
+            </div>
+          </div>
+
+          <!-- Verification & Upload Status Message Box -->
+          <div id="${statusBoxId}" class="hidden mt-3 pt-3 border-t border-gray-100 text-xs"></div>
+        `;
+
+        container.appendChild(card);
+      });
+
+      document.getElementById('stat-total').textContent = teacher.cbps.length;
+      document.getElementById('stat-uploaded').textContent = uploadedCount;
+      document.getElementById('stat-pending').textContent = teacher.cbps.length - uploadedCount;
+    }
+
+    // =========================================================================
+    // 5. CLIENT-SIDE PDF.JS VERIFICATION & SUPABASE AUTO-SYNC
+    // =========================================================================
+    async function processAndUploadPDF(event, cbpIndex) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const statusBox = document.getElementById(`status-box-${cbpIndex}`);
+      statusBox.classList.remove('hidden');
+
+      if (file.type !== 'application/pdf') {
+        showStatus(statusBox, 'error', '❌ Invalid File: Kripya sirf PDF file hi upload karein.');
+        event.target.value = '';
+        return;
+      }
+
+      const cbp = currentTeacher.cbps[cbpIndex];
+      showStatus(statusBox, 'loading', '🔍 Step 1/3: PDF ko phone/browser mein scan kiya ja raha hai (PDF.js)...');
+
+      try {
+        // 1. Extract text from PDF using PDF.js
+        const extractedText = await extractTextFromPDF(file);
+        const normalizedPDFText = normalizeText(extractedText);
+
+        // 2. Verify Teacher Name & CBP Topic
+        const strictMode = document.getElementById('strict-verify-toggle').checked;
+        const verification = verifyPDFContent(normalizedPDFText, currentTeacher.name, cbp.topic);
+
+        if (strictMode && !verification.isValid) {
+          showStatus(statusBox, 'error', `
+            <strong>❌ Verification Failed!</strong><br/>
+            ${verification.reason}<br/>
+            <span class="text-gray-600 mt-1 block">Kripya sahi certificate PDF chunein jisme aapka naam (<strong>${currentTeacher.name}</strong>) aur CBP topic (<strong>${cbp.topic}</strong>) likha ho.</span>
+          `);
+          event.target.value = '';
+          return;
+        }
+
+        showStatus(statusBox, 'loading', '✅ PDF Verified! Step 2/3: Supabase Storage mein teacher ke folder mein upload ho raha hai...');
+
+        // 3. Upload to Supabase Storage & Save DB Record
+        if (!supabaseClient) {
+          // Demo mode simulation if Supabase keys aren't set yet
+          setTimeout(() => {
+            const fakeUrl = URL.createObjectURL(file);
+            uploadedRecords.push({
+              teacher_id: currentTeacher.teacher_id,
+              teacher_name: currentTeacher.name,
+              cbp_domain: cbp.domain,
+              cbp_topic: cbp.topic,
+              cbp_date: cbp.date,
+              cbp_hours: cbp.hours,
+              file_url: fakeUrl,
+              verified: true,
+              uploaded_at: new Date().toISOString()
+            });
+            renderTeacherCBPs(currentTeacher);
+            alert("Demo Mode: PDF verified successfully! Live database mein save karne ke liye upar 'Admin / Keys' mein apna Supabase URL aur Key daalein.");
+          }, 800);
+          return;
+        }
+
+        const folderName = `${sanitizeFolderName(currentTeacher.name)}_${currentTeacher.teacher_id}`;
+        const cleanTopic = sanitizeFolderName(cbp.topic);
+        const filePath = `${folderName}/${cleanTopic}_${Date.now()}.pdf`;
+
+        const { data: uploadData, error: uploadError } = await supabaseClient.storage
+          .from(STORAGE_BUCKET)
+          .upload(filePath, file, {
+            cacheControl: '3600',
+            upsert: true,
+            contentType: 'application/pdf'
+          });
+
+        if (uploadError) throw new Error("Storage Upload Error: " + uploadError.message);
+
+        // Get Public URL
+        const { data: publicUrlData } = supabaseClient.storage
+          .from(STORAGE_BUCKET)
+          .getPublicUrl(filePath);
+
+        const publicUrl = publicUrlData.publicUrl;
+
+        showStatus(statusBox, 'loading', '💾 Step 3/3: Database table mein entry save ho rahi hai...');
+
+        // Upsert / Insert into cbp_certificates table
+        const recordPayload = {
+          teacher_id: currentTeacher.teacher_id,
+          teacher_name: currentTeacher.name,
+          cbp_domain: cbp.domain,
+          cbp_topic: cbp.topic,
+          cbp_date: cbp.date,
+          cbp_hours: cbp.hours,
+          file_path: filePath,
+          file_url: publicUrl,
+          verified: true,
+          uploaded_at: new Date().toISOString()
+        };
+
+        const { data: dbData, error: dbError } = await supabaseClient
+          .from('cbp_certificates')
+          .upsert(recordPayload, { onConflict: 'teacher_id,cbp_topic' })
+          .select();
+
+        if (dbError) throw new Error("Database Save Error: " + dbError.message);
+
+        // Update local cache & re-render
+        uploadedRecords = uploadedRecords.filter(r =>
+          !(String(r.teacher_id) === String(currentTeacher.teacher_id) && r.cbp_topic === cbp.topic)
+        );
+        uploadedRecords.unshift(dbData ? dbData[0] : recordPayload);
+
+        renderAdminRecords();
+        renderTeacherCBPs(currentTeacher);
+
+      } catch (err) {
+        console.error(err);
+        showStatus(statusBox, 'error', `⚠️ Error: ${err.message}`);
+      }
+    }
+
+    async function extractTextFromPDF(file) {
+      const arrayBuffer = await file.arrayBuffer();
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      let fullText = '';
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page = await pdf.getPage(i);
+        const textContent = await page.getTextContent();
+        const pageText = textContent.items.map(item => item.str).join(' ');
+        fullText += ' ' + pageText;
+      }
+      return fullText;
+    }
+
+    function normalizeText(str) {
+      return str.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+
+    function verifyPDFContent(normalizedPDFText, teacherName, cbpTopic) {
+      if (!normalizedPDFText || normalizedPDFText.length < 15) {
+        return {
+          isValid: false,
+          reason: "PDF mein readable text nahi mila (yeh scanned image PDF ho sakti hai). Original CBSE digital PDF upload karein."
+        };
+      }
+
+      // Check Teacher Name (at least first name or full name tokens)
+      const nameTokens = normalizeText(teacherName).split(' ').filter(w => w.length > 2);
+      const matchedNameTokens = nameTokens.filter(token => normalizedPDFText.includes(token));
+      const nameMatched = nameTokens.length > 0 && (matchedNameTokens.length >= Math.min(2, nameTokens.length));
+
+      // Check Topic keywords (ignore bracket words like (Secondary), (Advance))
+      const cleanTopic = cbpTopic.replace(/\(.*?\)/g, '');
+      const stopWords = ['in', 'of', 'the', 'and', 'as', 'about', 'for', 'to', 'a'];
+      const topicTokens = normalizeText(cleanTopic).split(' ').filter(w => w.length > 2 && !stopWords.includes(w));
+      const matchedTopicTokens = topicTokens.filter(token => normalizedPDFText.includes(token));
+      const topicMatchRatio = topicTokens.length > 0 ? (matchedTopicTokens.length / topicTokens.length) : 1;
+      const topicMatched = topicMatchRatio >= 0.6; // At least 60% of key topic words match
+
+      if (!nameMatched && !topicMatched) {
+        return {
+          isValid: false,
+          reason: `PDF ke andar Teacher ka naam ("${teacherName}") aur CBP Topic ("${cbpTopic}") dono match nahi hue.`
+        };
+      }
+      if (!nameMatched) {
+        return {
+          isValid: false,
+          reason: `PDF ke andar Teacher ka naam ("${teacherName}") match nahi hua. Kya aapne kisi aur teacher ka certificate select kar liya hai?`
+        };
+      }
+      if (!topicMatched) {
+        return {
+          isValid: false,
+          reason: `PDF ke andar CBP Topic ("${cbpTopic}") match nahi hua. Kripya isi module ka certificate upload karein.`
+        };
+      }
+
+      return { isValid: true };
+    }
+
+    function sanitizeFolderName(str) {
+      return str.trim().replace(/[^a-zA-Z0-9_-]/g, '_').replace(/_+/g, '_');
+    }
+
+    function showStatus(el, type, htmlMsg) {
+      el.classList.remove('hidden');
+      if (type === 'loading') {
+        el.innerHTML = `<div class="flex items-center gap-2 text-indigo-700 font-medium"><span class="spinner !border-indigo-600 !border-t-transparent"></span><span>${htmlMsg}</span></div>`;
+      } else if (type === 'error') {
+        el.innerHTML = `<div class="bg-red-50 border border-red-200 text-red-700 p-3 rounded-xl">${htmlMsg}</div>`;
+      } else {
+        el.innerHTML = `<div class="bg-emerald-50 border border-emerald-200 text-emerald-700 p-3 rounded-xl">${htmlMsg}</div>`;
+      }
+    }
+
+    // =========================================================================
+    // 6. ADMIN LOGS & CSV EXPORT
+    // =========================================================================
+    function renderAdminRecords() {
+      const listEl = document.getElementById('admin-records-list');
+      if (!uploadedRecords.length) {
+        listEl.innerHTML = `<p class="p-3 text-gray-500 text-center">Abhi tak koi certificate upload nahi hua hai.</p>`;
+        return;
+      }
+      listEl.innerHTML = uploadedRecords.map(r => `
+        <div class="p-2.5 flex items-center justify-between gap-2 hover:bg-gray-50">
+          <div>
+            <p class="font-bold text-gray-800">${r.teacher_name} <span class="font-normal text-gray-500">(ID: ${r.teacher_id})</span></p>
+            <p class="text-gray-600">${r.cbp_topic} &bull; <span class="text-gray-400">${new Date(r.uploaded_at).toLocaleDateString()}</span></p>
+          </div>
+          <a href="${r.file_url}" target="_blank" class="text-indigo-600 font-semibold hover:underline flex-shrink-0">Open PDF</a>
+        </div>
+      `).join('');
+    }
+
+    function exportUploadedCSV() {
+      if (!uploadedRecords.length) {
+        alert("Export karne ke liye koi record nahi hai.");
+        return;
+      }
+      const headers = ["Teacher ID", "Teacher Name", "Domain", "CBP Topic", "Date", "Hours", "Verified", "Uploaded At", "PDF URL"];
+      const rows = uploadedRecords.map(r => [
+        r.teacher_id,
+        `"${r.teacher_name}"`,
+        `"${r.cbp_domain}"`,
+        `"${r.cbp_topic}"`,
+        `"${r.cbp_date}"`,
+        r.cbp_hours,
+        r.verified ? "Yes" : "No",
+        `"${r.uploaded_at}"`,
+        `"${r.file_url}"`
+      ]);
+      const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement("a");
+      link.setAttribute("href", encodedUri);
+      link.setAttribute("download", `CBP_Uploaded_Certificates_${new Date().toISOString().slice(0,10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  </script>
+</body>
+</html>
