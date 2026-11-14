@@ -246,8 +246,8 @@
     function getSupabaseCreds() {
       const savedUrl = localStorage.getItem('cbp_supabase_url');
       const savedKey = localStorage.getItem('cbp_supabase_key');
-      const url = (HARDCODED_SUPABASE_URL !== "YOUR_SUPABASE_PROJECT_URL" && HARDCODED_SUPABASE_URL) ? HARDCODED_SUPABASE_URL : savedUrl;
-      const key = (HARDCODED_SUPABASE_ANON_KEY !== "YOUR_SUPABASE_ANON_KEY" && HARDCODED_SUPABASE_ANON_KEY) ? HARDCODED_SUPABASE_ANON_KEY : savedKey;
+      const url = (HARDCODED_SUPABASE_URL !== "https://kclurppujjhrzwpawals.supabase.co" && HARDCODED_SUPABASE_URL) ? HARDCODED_SUPABASE_URL : savedUrl;
+      const key = (HARDCODED_SUPABASE_ANON_KEY !== "sb_publishable_cLEsEEvnJoQsUHKRS4gVLw_QHlmJSfH" && HARDCODED_SUPABASE_ANON_KEY) ? HARDCODED_SUPABASE_ANON_KEY : savedKey;
       return { url, key };
     }
 
