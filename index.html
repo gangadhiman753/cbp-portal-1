@@ -622,30 +622,41 @@
     }
 
     function exportUploadedCSV() {
-      if (!uploadedRecords.length) {
+    if (!uploadedRecords || !uploadedRecords.length) {
         alert("Export karne ke liye koi record nahi hai.");
         return;
-      }
-     const headers = ["Teacher ID", "Teacher Name", "Domain", "CBP Topic", "Date", "Hours", "Verified", "Uploaded At", "PDF URL"];
+    }
+
+    const headers = ["Teacher ID", "Teacher Name", "Domain", "CBP Topic", "Date", "Hours", "Verified", "Uploaded At", "PDF URL"];
+    
     const rows = uploadedRecords.map(r => [
-        r.teacher_id,
-        `${r.teacher_name}`,
-        `${r.cbp_domain}`,
-        `${r.cbp_topic}`,
-        `${r.cbp_date}`,
-        r.cbp_hours,
+        r.teacher_id || '',
+        r.teacher_name || '',
+        r.cbp_domain || '',
+        r.cbp_topic || '',
+        r.cbp_date || '',
+        r.cbp_hours || '',
         r.verified ? "Yes" : "No",
-        `${r.uploaded_at}`,
-        `${r.file_url}`
+        r.uploaded_at || '',
+        r.file_url || ''
     ]);
-    const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
+
+    // Helper to safely escape CSV fields containing commas or quotes
+    const escapeCsv = (val) => `"${(val || '').toString().replace(/"/g, '""')}"`;
+
+    const csvContent = "data:text/csv;charset=utf-8," + [
+        headers.map(escapeCsv).join(","), 
+        ...rows.map(row => row.map(escapeCsv).join(","))
+    ].join("\n");
+
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
     link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `CBP_Uploaded_Certificates_${new Date().toISOString().slice(0,10)}.csv`);
+    link.setAttribute("download", `CBP_Uploaded_Certificates_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+}
 }
   </script>
 </body>
