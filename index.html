@@ -47,7 +47,7 @@
       <div>
         <span class="inline-block bg-indigo-700 text-indigo-100 text-xs font-semibold px-2.5 py-0.5 rounded-full uppercase tracking-wider mb-1">CBSE Training Records</span>
         <h1 class="text-xl sm:text-2xl font-bold tracking-tight">CBP Certificate Upload Portal</h1>
-        <p class="text-indigo-200 text-xs sm:text-sm mt-0.5">Select your name, strict verified upload, and sync to school database</p>
+        <p class="text-indigo-200 text-xs sm:text-sm mt-0.5">Select your name, smart OCR verified upload, and sync to school database</p>
       </div>
       <div class="flex items-center gap-2">
         <span id="db-status-badge" class="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-indigo-800 text-indigo-200 border border-indigo-700">
@@ -199,14 +199,14 @@
     // 2. EKLAVYA & COMPETENCY ASSESSMENT MODULES TEMPLATE
     // =========================================================================
     const EKLAVYA_MODULES_TEMPLATE = [
-      {domain: "Domain 2", topic: "3030 Eklavya Program - Ep 01: Man Vs माचिस", date: "15/08/2026", hours: 3},
-      {domain: "Domain 2", topic: "3030 Eklavya Program - Ep 02: Sustainability: Dharti Ek, Maange Anek", date: "23/08/2026", hours: 3},
-      {domain: "Domain 2", topic: "3030 Eklavya Program - Ep 03: Nature's Secret Poetry", date: "30/08/2026", hours: 3},
-      {domain: "Domain 2", topic: "3030 Eklavya Program - Ep 04: Batteries Charged Through Time", date: "06/09/2026", hours: 3},
-      {domain: "Domain 2", topic: "3030 Eklavya Program - Ep 05", date: "13/09/2026", hours: 3},
-      {domain: "Domain 2", topic: "3030 Eklavya Program - Ep 06: कुदरत की secret diary", date: "20/09/2026", hours: 3},
-      {domain: "Domain 2", topic: "3030 Eklavya Program - Ep 07: Inside Computers: Anatomy of a PC", date: "27/09/2026", hours: 3},
-      {domain: "Domain 2", topic: "3030 Eklavya Program - Ep 08: Lights, Camera, Image: रोशनी का जादू", date: "04/10/2026", hours: 3},
+      {domain: "Domain 2", topic: "3030 Eklavya Program - Ep 1: Man Vs माचिस", date: "15/08/2026", hours: 3},
+      {domain: "Domain 2", topic: "3030 Eklavya Program - Ep 2: Sustainability: Dharti Ek, Maange Anek", date: "23/08/2026", hours: 3},
+      {domain: "Domain 2", topic: "3030 Eklavya Program - Ep 3: Nature's Secret Poetry", date: "30/08/2026", hours: 3},
+      {domain: "Domain 2", topic: "3030 Eklavya Program - Ep 4: Batteries Charged Through Time", date: "06/09/2026", hours: 3},
+      {domain: "Domain 2", topic: "3030 Eklavya Program - Ep 5", date: "13/09/2026", hours: 3},
+      {domain: "Domain 2", topic: "3030 Eklavya Program - Ep 6: कुदरत की secret diary", date: "20/09/2026", hours: 3},
+      {domain: "Domain 2", topic: "3030 Eklavya Program - Ep 7: Inside Computers: Anatomy of a PC", date: "27/09/2026", hours: 3},
+      {domain: "Domain 2", topic: "3030 Eklavya Program - Ep 8: Lights, Camera, Image: रोशनी का जादू", date: "04/10/2026", hours: 3},
       {domain: "Domain 2", topic: "Competency Assessment", date: "Aug - Oct, 2026", hours: 4}
     ];
 
@@ -513,7 +513,7 @@
       const cbp = currentTeacher.cbps[cbpIndex];
 
       try {
-        showStatus(statusBox, 'loading', '🔍 Certificate verify kiya ja raha hai (Naam aur Topic check ho rahe hain)...');
+        showStatus(statusBox, 'loading', '🔍 Certificate scan & verify ho raha hai...');
         
         let extractedText = '';
         if (isPDF) {
@@ -523,6 +523,10 @@
         }
 
         const normalizedText = normalizeText(extractedText);
+        console.log("--- EXTRACTED CERTIFICATE TEXT ---");
+        console.log(normalizedText);
+        console.log("----------------------------------");
+
         const verification = verifyCertificateContent(normalizedText, currentTeacher.name, cbp.topic);
 
         if (!verification.isValid) {
@@ -544,12 +548,12 @@
     }
 
     function verifyCertificateContent(normalizedFileText, teacherName, cbpTopic) {
-      if (!normalizedFileText || normalizedFileText.length < 8) {
-        return { isValid: false, reason: "File se text read nahi ho paya (Scanned/blur image ya blank file ho sakti hai)." };
+      if (!normalizedFileText || normalizedFileText.length < 5) {
+        return { isValid: false, reason: "File se text read nahi ho paya (Blur image ya empty PDF ho sakti hai)." };
       }
 
-      // 1. Teacher Name Check: Kam se kam 1 word match hona chahiye
-      const nameTokens = normalizeText(teacherName).split(' ').filter(w => w.length >= 2);
+      // 1. Teacher Name Check: Naam ka koi bhi significant word match hona chahiye
+      const nameTokens = normalizeText(teacherName).split(' ').filter(w => w.length >= 3);
       const nameMatched = nameTokens.length === 0 || nameTokens.some(token => normalizedFileText.includes(token));
 
       if (!nameMatched) {
@@ -558,7 +562,7 @@
 
       // 2. Topic Check: Topic ke beech ke kam se kam 2 keywords match hone chahiye
       const cleanTopic = cbpTopic.replace(/[()\-:]/g, ' ');
-      const stopWords = ['in', 'of', 'the', 'and', 'as', 'about', 'for', 'to', 'a', 'vs', 'ep'];
+      const stopWords = ['in', 'of', 'the', 'and', 'as', 'about', 'for', 'to', 'a', 'vs', 'ep', '3030'];
       const rawTokens = normalizeText(cleanTopic).split(' ').filter(w => w.length >= 2 && !stopWords.includes(w));
       const uniqueTopicTokens = [...new Set(rawTokens)];
 
@@ -575,7 +579,7 @@
       if (!topicMatched) {
         return {
           isValid: false,
-          reason: `Topic ("${cbpTopic}") ke kam se kam ${requiredMatches} keywords certificate mein match nahi hue.`
+          reason: `Topic ("${cbpTopic}") ke required keywords certificate mein match nahi hue. (Matched: ${matchedKeywords.join(', ') || 'None'})`
         };
       }
 
@@ -662,6 +666,24 @@
         const textContent = await page.getTextContent();
         fullText += ' ' + textContent.items.map(item => item.str).join(' ');
       }
+
+      // If text extraction is very sparse (Scanned PDF), use Tesseract OCR fallback on rendered canvas
+      if (fullText.trim().length < 30) {
+        console.log("Scanned PDF detected. Running OCR fallback...");
+        for (let i = 1; i <= pdf.numPages; i++) {
+          const page = await pdf.getPage(i);
+          const viewport = page.getViewport({ scale: 1.5 });
+          const canvas = document.createElement('canvas');
+          const context = canvas.getContext('2d');
+          canvas.height = viewport.height;
+          canvas.width = viewport.width;
+          await page.render({ canvasContext: context, viewport: viewport }).promise;
+          const imgDataUrl = canvas.toDataURL('image/png');
+          const ocrRes = await Tesseract.recognize(imgDataUrl, 'eng');
+          fullText += ' ' + ocrRes.data.text;
+        }
+      }
+
       return fullText;
     }
 
