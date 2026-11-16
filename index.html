@@ -560,10 +560,10 @@
         return { isValid: false, reason: `Certificate mein selected teacher ka naam ("${teacherName}") match nahi hua.` };
       }
 
-      // 2. Topic Check: Topic ke beech ke kam se kam 2 keywords match hone chahiye
+      // 2. Topic Check: Smart keyword matching (e.g. "3030", "eklavya", "ep", "05" are kept)
       const cleanTopic = cbpTopic.replace(/[()\-:]/g, ' ');
-      const stopWords = ['in', 'of', 'the', 'and', 'as', 'about', 'for', 'to', 'a', 'vs', 'ep', '3030'];
-      const rawTokens = normalizeText(cleanTopic).split(' ').filter(w => w.length >= 2 && !stopWords.includes(w));
+      const stopWords = ['in', 'of', 'the', 'and', 'as', 'about', 'for', 'to', 'a', 'vs'];
+      const rawTokens = normalizeText(cleanTopic).split(' ').filter(w => w.length >= 1 && !stopWords.includes(w));
       const uniqueTopicTokens = [...new Set(rawTokens)];
 
       let matchedKeywords = [];
@@ -573,7 +573,8 @@
         }
       });
 
-      const requiredMatches = Math.min(2, uniqueTopicTokens.length);
+      // Agar topic mein total 2 ya usse kam keywords hain (jaise "3030 Eklavya Program - Ep 05" mein chote tokens), toh kam se kam 1 match hona zaroori hai. Otherwise 2.
+      const requiredMatches = uniqueTopicTokens.length <= 3 ? 1 : Math.min(2, uniqueTopicTokens.length);
       const topicMatched = (uniqueTopicTokens.length === 0) || (matchedKeywords.length >= requiredMatches);
 
       if (!topicMatched) {
@@ -667,7 +668,6 @@
         fullText += ' ' + textContent.items.map(item => item.str).join(' ');
       }
 
-      // If text extraction is very sparse (Scanned PDF), use Tesseract OCR fallback on rendered canvas
       if (fullText.trim().length < 30) {
         console.log("Scanned PDF detected. Running OCR fallback...");
         for (let i = 1; i <= pdf.numPages; i++) {
