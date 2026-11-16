@@ -47,7 +47,7 @@
       <div>
         <span class="inline-block bg-indigo-700 text-indigo-100 text-xs font-semibold px-2.5 py-0.5 rounded-full uppercase tracking-wider mb-1">CBSE Training Records</span>
         <h1 class="text-xl sm:text-2xl font-bold tracking-tight">CBP Certificate Upload Portal</h1>
-        <p class="text-indigo-200 text-xs sm:text-sm mt-0.5">Select your name, upload certificate, and sync to school database</p>
+        <p class="text-indigo-200 text-xs sm:text-sm mt-0.5">Select your name, verified certificate upload, and sync to school database</p>
       </div>
       <div class="flex items-center gap-2">
         <span id="db-status-badge" class="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-indigo-800 text-indigo-200 border border-indigo-700">
@@ -506,20 +506,28 @@
 
       if (!isPDF && !isImage) {
         showStatus(statusBox, 'error', '❌ Invalid File: Kripya sirf PDF ya Image (JPG/PNG) file hi upload karein.');
-        if (event && event.target) event.target.value = '';
+        event.target.value = '';
         return;
       }
 
       const cbp = currentTeacher.cbps[cbpIndex];
 
       try {
-        // Quick background check simulation (no warnings/blocks)
+        showStatus(statusBox, 'loading', '🔍 Certificate verify kiya ja raha hai...');
+        
+        let extractedText = '';
         if (isPDF) {
-          showStatus(statusBox, 'loading', '🔍 PDF check ho rahi hai...');
-          await extractTextFromPDF(file);
+          extractedText = await extractTextFromPDF(file);
         } else if (isImage) {
-          showStatus(statusBox, 'loading', '🖼️ Image read ho rahi hai...');
-          await extractTextFromImage(file);
+          extractedText = await extractTextFromImage(file);
+        }
+
+        const verification = verifyCertificateContent(extractedText, currentTeacher.name, cbp.topic);
+
+        if (!verification.isValid) {
+          showStatus(statusBox, 'error', `❌ Upload Blocked: ${verification.reason}`);
+          event.target.value = '';
+          return;
         }
 
         await uploadToSupabase(file, cbp, cbpIndex, statusBox);
@@ -528,6 +536,34 @@
         console.error(err);
         showStatus(statusBox, 'error', `⚠️ Error: ${err.message}`);
       }
+    }
+
+    function verifyCertificateContent(text, teacherName, topic) {
+      if (!text || text.trim().length < 8) {
+        return { isValid: false, reason: "File se text read nahi ho paya ya blank file hai." };
+      }
+
+      const lowerText = text.toLowerCase();
+
+      // Check training/certificate keywords
+      const validKeywords = ['certificate', 'cbse', 'training', 'completion', 'participation', 'program', 'workshop', 'eklavya', 'hours', 'successfully', 'awarded', 'board'];
+      const hasValidKeyword = validKeywords.some(kw => lowerText.includes(kw));
+
+      // Check if teacher name or part of topic matches
+      const nameTokens = teacherName.toLowerCase().split(' ').filter(w => w.length > 2);
+      const nameMatched = nameTokens.some(token => lowerText.includes(token));
+
+      const topicWords = topic.toLowerCase().replace(/[^a-z0-9]/g, ' ').split(' ').filter(w => w.length > 3);
+      const topicMatched = topicWords.some(w => lowerText.includes(w));
+
+      if (!hasValidKeyword && !nameMatched && !topicMatched) {
+        return { 
+          isValid: false, 
+          reason: "Yeh valid CBSE/CBP certificate nahi lag raha hai. Kripya sahi certificate PDF ya image upload karein." 
+        };
+      }
+
+      return { isValid: true };
     }
 
     async function uploadToSupabase(file, cbp, cbpIndex, statusBox) {
@@ -639,13 +675,13 @@
         return;
       }
       listEl.innerHTML = uploadedRecords.map(r => `
-        <div class="p-2.5 flex items-center justify-between gap-2 hover:bg-gray-50">
+        <p class="p-2.5 flex items-center justify-between gap-2 hover:bg-gray-50">
           <div>
-            <p class="font-bold text-gray-800">${r.teacher_name} <span class="font-normal text-gray-500">(ID: ${r.teacher_id})</span></p>
-            <p class="text-gray-600">${r.cbp_topic} &bull; <span class="text-gray-400">${new Date(r.uploaded_at).toLocaleDateString()}</span></p>
+            <span class="font-bold text-gray-800">${r.teacher_name}</span> (ID: ${r.teacher_id})<br/>
+            <span class="text-gray-600">${r.cbp_topic}</span>
           </div>
-          <a href="${r.file_url}" target="_blank" class="text-indigo-600 font-semibold hover:underline flex-shrink-0">Open File</a>
-        </div>
+          <a href="${r.file_url}" target="_blank" class="text-indigo-600 font-semibold hover:underline">Open</a>
+        </p>
       `).join('');
     }
 
