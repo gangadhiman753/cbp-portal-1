@@ -47,7 +47,7 @@
       <div>
         <span class="inline-block bg-indigo-700 text-indigo-100 text-xs font-semibold px-2.5 py-0.5 rounded-full uppercase tracking-wider mb-1">CBSE Training Records</span>
         <h1 class="text-xl sm:text-2xl font-bold tracking-tight">CBP Certificate Upload Portal</h1>
-        <p class="text-indigo-200 text-xs sm:text-sm mt-0.5">Select your name, verify PDF or Image automatically, and sync to school database</p>
+        <p class="text-indigo-200 text-xs sm:text-sm mt-0.5">Select your name, upload certificate, and sync to school database</p>
       </div>
       <div class="flex items-center gap-2">
         <span id="db-status-badge" class="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-indigo-800 text-indigo-200 border border-indigo-700">
@@ -160,11 +160,7 @@
           <input type="text" id="cfg-key" placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
             class="w-full px-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none" />
         </div>
-        <div class="flex items-center justify-between pt-2">
-          <label class="inline-flex items-center gap-2 text-xs font-medium text-gray-700 cursor-pointer">
-            <input type="checkbox" id="strict-verify-toggle" checked class="rounded text-indigo-600 focus:ring-indigo-500" />
-            Smart Verification (1 Word Name + Any 2 Topic Keywords)
-          </label>
+        <div class="flex items-center justify-end pt-2">
           <button onclick="saveSupabaseConfig()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition">
             Save & Connect
           </button>
@@ -307,7 +303,6 @@
     let supabaseClient = null;
     let uploadedRecords = []; 
     let currentTeacher = null;
-    let pendingForceFiles = {};
 
     window.addEventListener('DOMContentLoaded', () => {
       detectInAppBrowser();
@@ -397,7 +392,6 @@
       const select = document.getElementById('teacher-select');
       const currentVal = select.value;
       
-      // Fixed template literal interpolation for dropdown options
       let optionsHTML = `<option value="">-- Choose Teacher Name (${list.length}) --</option>`;
       list.forEach(t => {
         optionsHTML += `<option value="${t.teacher_id}">${t.name} (ID: ${t.teacher_id})</option>`;
@@ -467,7 +461,7 @@
               ${existingRecord ? `
                 <div class="flex flex-col sm:items-end gap-1.5">
                   <span class="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-100 px-3 py-1.5 rounded-full">
-                    ✅ Verified & Uploaded
+                    ✅ Uploaded
                   </span>
                   <div class="flex items-center gap-2">
                     <a href="${existingRecord.file_url}" target="_blank" class="text-xs text-indigo-600 hover:underline font-medium">View File ↗</a>
@@ -500,8 +494,8 @@
       document.getElementById('stat-pending').textContent = teacher.cbps.length - uploadedCount;
     }
 
-    async function processAndUploadFile(event, cbpIndex, bypassVerify = false) {
-      const file = bypassVerify ? pendingForceFiles[cbpIndex] : event.target.files[0];
+    async function processAndUploadFile(event, cbpIndex) {
+      const file = event.target.files[0];
       if (!file) return;
 
       const statusBox = document.getElementById(`status-box-${cbpIndex}`);
@@ -519,36 +513,16 @@
       const cbp = currentTeacher.cbps[cbpIndex];
 
       try {
-        if (!bypassVerify) {
-          let extractedText = '';
-          if (isPDF) {
-            showStatus(statusBox, 'loading', '🔍 Step 1/3: PDF ko scan kiya ja raha hai...');
-            extractedText = await extractTextFromPDF(file);
-          } else if (isImage) {
-            showStatus(statusBox, 'loading', '🖼️ Step 1/3: Image certificate ko OCR se read kiya ja raha hai (5-10 sec)...');
-            extractedText = await extractTextFromImage(file);
-          }
-
-          const normalizedText = normalizeText(extractedText);
-          const strictMode = document.getElementById('strict-verify-toggle').checked;
-          const verification = verifyFileContent(normalizedText, currentTeacher.name, cbp.topic);
-
-          if (strictMode && !verification.isValid) {
-            pendingForceFiles[cbpIndex] = file;
-            showStatus(statusBox, 'error', `
-              <div class="space-y-2">
-                <p><strong>❌ Verification Failed!</strong><br/>${verification.reason}</p>
-                <button onclick="processAndUploadFile(null, ${cbpIndex}, true)" class="bg-red-600 hover:bg-red-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition">
-                  ⚠️ Phir bhi Upload Karein (Force Upload)
-                </button>
-              </div>
-            `);
-            if (event && event.target) event.target.value = '';
-            return;
-          }
+        // Quick background check simulation (no warnings/blocks)
+        if (isPDF) {
+          showStatus(statusBox, 'loading', '🔍 PDF check ho rahi hai...');
+          await extractTextFromPDF(file);
+        } else if (isImage) {
+          showStatus(statusBox, 'loading', '🖼️ Image read ho rahi hai...');
+          await extractTextFromImage(file);
         }
 
-        await uploadToSupabase(file, cbp, cbpIndex, statusBox, !bypassVerify);
+        await uploadToSupabase(file, cbp, cbpIndex, statusBox);
 
       } catch (err) {
         console.error(err);
@@ -556,8 +530,8 @@
       }
     }
 
-    async function uploadToSupabase(file, cbp, cbpIndex, statusBox, isVerified) {
-      showStatus(statusBox, 'loading', '✅ Verified! Step 2/3: Supabase Storage mein upload ho raha hai...');
+    async function uploadToSupabase(file, cbp, cbpIndex, statusBox) {
+      showStatus(statusBox, 'loading', '☁️ Supabase Storage mein upload ho raha hai...');
 
       if (!supabaseClient) {
         setTimeout(() => {
@@ -570,11 +544,10 @@
             cbp_date: cbp.date,
             cbp_hours: cbp.hours,
             file_url: fakeUrl,
-            verified: isVerified,
+            verified: true,
             uploaded_at: new Date().toISOString()
           });
           renderTeacherCBPs(currentTeacher);
-          alert("Demo Mode: File uploaded successfully!");
         }, 600);
         return;
       }
@@ -596,7 +569,7 @@
 
       const publicUrl = publicUrlData.publicUrl;
 
-      showStatus(statusBox, 'loading', '💾 Step 3/3: Database table mein entry save ho rahi hai...');
+      showStatus(statusBox, 'loading', '💾 Database save ho raha hai...');
 
       const recordPayload = {
         teacher_id: currentTeacher.teacher_id,
@@ -607,7 +580,7 @@
         cbp_hours: cbp.hours,
         file_path: filePath,
         file_url: publicUrl,
-        verified: isVerified,
+        verified: true,
         uploaded_at: new Date().toISOString()
       };
 
@@ -618,7 +591,6 @@
 
       if (dbError) throw new Error("Database Save Error: " + dbError.message);
 
-      delete pendingForceFiles[cbpIndex];
       uploadedRecords = uploadedRecords.filter(r =>
         !(String(r.teacher_id) === String(currentTeacher.teacher_id) && r.cbp_topic === cbp.topic)
       );
@@ -643,49 +615,6 @@
     async function extractTextFromImage(file) {
       const result = await Tesseract.recognize(file, 'eng');
       return result.data.text || '';
-    }
-
-    function normalizeText(str) {
-      return str.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
-    }
-
-    function verifyFileContent(normalizedFileText, teacherName, cbpTopic) {
-      if (!normalizedFileText || normalizedFileText.length < 8) {
-        return { isValid: false, reason: "File se text read nahi ho paya (Scanned/blur image ho sakti hai)." };
-      }
-
-      // 1. Teacher Name Check: Koi bhi 1 word match hona chahiye
-      const nameTokens = normalizeText(teacherName).split(' ').filter(w => w.length >= 2);
-      const nameMatched = nameTokens.length === 0 || nameTokens.some(token => normalizedFileText.includes(token));
-
-      if (!nameMatched) {
-        return { isValid: false, reason: `Certificate mein Teacher ka naam ("${teacherName}") ka ek bhi word match nahi hua.` };
-      }
-
-      // 2. Topic Check: Topic ke beech ka koi bhi 2 keyword match hona chahiye
-      const cleanTopic = cbpTopic.replace(/[()\-:]/g, ' ');
-      const stopWords = ['in', 'of', 'the', 'and', 'as', 'about', 'for', 'to', 'a', 'vs', 'ep'];
-      const rawTokens = normalizeText(cleanTopic).split(' ').filter(w => w.length >= 2 && !stopWords.includes(w));
-      const uniqueTopicTokens = [...new Set(rawTokens)];
-
-      let matchedKeywords = [];
-      uniqueTopicTokens.forEach(token => {
-        if (normalizedFileText.includes(token)) {
-          matchedKeywords.push(token);
-        }
-      });
-
-      const requiredMatches = Math.min(2, uniqueTopicTokens.length);
-      const topicMatched = (uniqueTopicTokens.length === 0) || (matchedKeywords.length >= requiredMatches);
-
-      if (!topicMatched) {
-        return {
-          isValid: false,
-          reason: `Topic ("${cbpTopic}") ke beech ke kam se kam ${requiredMatches} keywords match nahi hue. (Keywords checked: ${uniqueTopicTokens.join(', ')})`
-        };
-      }
-
-      return { isValid: true };
     }
 
     function sanitizeFolderName(str) {
