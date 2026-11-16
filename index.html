@@ -47,7 +47,7 @@
       <div>
         <span class="inline-block bg-indigo-700 text-indigo-100 text-xs font-semibold px-2.5 py-0.5 rounded-full uppercase tracking-wider mb-1">CBSE Training Records</span>
         <h1 class="text-xl sm:text-2xl font-bold tracking-tight">CBP Certificate Upload Portal</h1>
-        <p class="text-indigo-200 text-xs sm:text-sm mt-0.5">Select your name, verified certificate upload, and sync to school database</p>
+        <p class="text-indigo-200 text-xs sm:text-sm mt-0.5">Select your name, strict verified upload, and sync to school database</p>
       </div>
       <div class="flex items-center gap-2">
         <span id="db-status-badge" class="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-indigo-800 text-indigo-200 border border-indigo-700">
@@ -513,7 +513,7 @@
       const cbp = currentTeacher.cbps[cbpIndex];
 
       try {
-        showStatus(statusBox, 'loading', '🔍 Certificate verify kiya ja raha hai...');
+        showStatus(statusBox, 'loading', '🔍 Certificate verify kiya ja raha hai (Naam aur Topic check ho rahe hain)...');
         
         let extractedText = '';
         if (isPDF) {
@@ -522,10 +522,11 @@
           extractedText = await extractTextFromImage(file);
         }
 
-        const verification = verifyCertificateContent(extractedText, currentTeacher.name, cbp.topic);
+        const normalizedText = normalizeText(extractedText);
+        const verification = verifyCertificateContent(normalizedText, currentTeacher.name, cbp.topic);
 
         if (!verification.isValid) {
-          showStatus(statusBox, 'error', `❌ Upload Blocked: ${verification.reason}`);
+          showStatus(statusBox, 'error', `❌ Upload Rejected: ${verification.reason}`);
           event.target.value = '';
           return;
         }
@@ -538,28 +539,43 @@
       }
     }
 
-    function verifyCertificateContent(text, teacherName, topic) {
-      if (!text || text.trim().length < 8) {
-        return { isValid: false, reason: "File se text read nahi ho paya ya blank file hai." };
+    function normalizeText(str) {
+      return str.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+    }
+
+    function verifyCertificateContent(normalizedFileText, teacherName, cbpTopic) {
+      if (!normalizedFileText || normalizedFileText.length < 8) {
+        return { isValid: false, reason: "File se text read nahi ho paya (Scanned/blur image ya blank file ho sakti hai)." };
       }
 
-      const lowerText = text.toLowerCase();
+      // 1. Teacher Name Check: Kam se kam 1 word match hona chahiye
+      const nameTokens = normalizeText(teacherName).split(' ').filter(w => w.length >= 2);
+      const nameMatched = nameTokens.length === 0 || nameTokens.some(token => normalizedFileText.includes(token));
 
-      // Check training/certificate keywords
-      const validKeywords = ['certificate', 'cbse', 'training', 'completion', 'participation', 'program', 'workshop', 'eklavya', 'hours', 'successfully', 'awarded', 'board'];
-      const hasValidKeyword = validKeywords.some(kw => lowerText.includes(kw));
+      if (!nameMatched) {
+        return { isValid: false, reason: `Certificate mein selected teacher ka naam ("${teacherName}") match nahi hua.` };
+      }
 
-      // Check if teacher name or part of topic matches
-      const nameTokens = teacherName.toLowerCase().split(' ').filter(w => w.length > 2);
-      const nameMatched = nameTokens.some(token => lowerText.includes(token));
+      // 2. Topic Check: Topic ke beech ke kam se kam 2 keywords match hone chahiye
+      const cleanTopic = cbpTopic.replace(/[()\-:]/g, ' ');
+      const stopWords = ['in', 'of', 'the', 'and', 'as', 'about', 'for', 'to', 'a', 'vs', 'ep'];
+      const rawTokens = normalizeText(cleanTopic).split(' ').filter(w => w.length >= 2 && !stopWords.includes(w));
+      const uniqueTopicTokens = [...new Set(rawTokens)];
 
-      const topicWords = topic.toLowerCase().replace(/[^a-z0-9]/g, ' ').split(' ').filter(w => w.length > 3);
-      const topicMatched = topicWords.some(w => lowerText.includes(w));
+      let matchedKeywords = [];
+      uniqueTopicTokens.forEach(token => {
+        if (normalizedFileText.includes(token)) {
+          matchedKeywords.push(token);
+        }
+      });
 
-      if (!hasValidKeyword && !nameMatched && !topicMatched) {
-        return { 
-          isValid: false, 
-          reason: "Yeh valid CBSE/CBP certificate nahi lag raha hai. Kripya sahi certificate PDF ya image upload karein." 
+      const requiredMatches = Math.min(2, uniqueTopicTokens.length);
+      const topicMatched = (uniqueTopicTokens.length === 0) || (matchedKeywords.length >= requiredMatches);
+
+      if (!topicMatched) {
+        return {
+          isValid: false,
+          reason: `Topic ("${cbpTopic}") ke kam se kam ${requiredMatches} keywords certificate mein match nahi hue.`
         };
       }
 
@@ -567,7 +583,7 @@
     }
 
     async function uploadToSupabase(file, cbp, cbpIndex, statusBox) {
-      showStatus(statusBox, 'loading', '☁️ Supabase Storage mein upload ho raha hai...');
+      showStatus(statusBox, 'loading', '☁️ Verified! Supabase Storage mein upload ho raha hai...');
 
       if (!supabaseClient) {
         setTimeout(() => {
@@ -584,6 +600,7 @@
             uploaded_at: new Date().toISOString()
           });
           renderTeacherCBPs(currentTeacher);
+          showStatus(statusBox, 'success', '✅ Successfully Uploaded & Verified!');
         }, 600);
         return;
       }
@@ -675,13 +692,13 @@
         return;
       }
       listEl.innerHTML = uploadedRecords.map(r => `
-        <p class="p-2.5 flex items-center justify-between gap-2 hover:bg-gray-50">
+        <div class="p-2.5 flex items-center justify-between gap-2 hover:bg-gray-50">
           <div>
-            <span class="font-bold text-gray-800">${r.teacher_name}</span> (ID: ${r.teacher_id})<br/>
-            <span class="text-gray-600">${r.cbp_topic}</span>
+            <p class="font-bold text-gray-800">${r.teacher_name} <span class="font-normal text-gray-500">(ID: ${r.teacher_id})</span></p>
+            <p class="text-gray-600">${r.cbp_topic} &bull; <span class="text-gray-400">${new Date(r.uploaded_at).toLocaleDateString()}</span></p>
           </div>
-          <a href="${r.file_url}" target="_blank" class="text-indigo-600 font-semibold hover:underline">Open</a>
-        </p>
+          <a href="${r.file_url}" target="_blank" class="text-indigo-600 font-semibold hover:underline flex-shrink-0">Open File</a>
+        </div>
       `).join('');
     }
 
