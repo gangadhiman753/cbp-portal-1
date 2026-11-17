@@ -7,8 +7,6 @@
   <script src="https://cdn.tailwindcss.com"></script>
   <!-- PDF.js CDN -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-  <!-- Tesseract.js CDN for Image OCR -->
-  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <!-- Supabase JS v2 CDN -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -47,7 +45,7 @@
       <div>
         <span class="inline-block bg-indigo-700 text-indigo-100 text-xs font-semibold px-2.5 py-0.5 rounded-full uppercase tracking-wider mb-1">CBSE Training Records</span>
         <h1 class="text-xl sm:text-2xl font-bold tracking-tight">CBP Certificate Upload Portal</h1>
-        <p class="text-indigo-200 text-xs sm:text-sm mt-0.5">Select your name, strict OCR verified upload, and sync to school database</p>
+        <p class="text-indigo-200 text-xs sm:text-sm mt-0.5">Select your name, AI Gemini Vision Verified Upload</p>
       </div>
       <div class="flex items-center gap-2">
         <span id="db-status-badge" class="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-indigo-800 text-indigo-200 border border-indigo-700">
@@ -143,12 +141,6 @@
         <button onclick="toggleAdminModal()" class="text-gray-400 hover:text-gray-700 text-xl font-bold">&times;</button>
       </div>
 
-      <div class="bg-blue-50 border border-blue-200 rounded-xl p-3.5 text-xs text-blue-800 space-y-1">
-        <p class="font-bold">Setup Instructions:</p>
-        <p>1. Apne Supabase Project se <strong>Project URL</strong> aur <strong>Anon Public Key</strong> neeche paste karein.</p>
-        <p>2. Supabase Storage mein <code>cbp-certificates</code> naam ka <strong>Public Bucket</strong> banayein.</p>
-      </div>
-
       <div class="space-y-3">
         <div>
           <label class="block text-xs font-semibold text-gray-700 mb-1">Supabase Project URL</label>
@@ -184,7 +176,7 @@
 
   <!-- Footer -->
   <footer class="text-center text-xs text-gray-400 py-5 border-t border-gray-200 bg-white mt-auto">
-    CBSE Capacity Building Programme (CBP) Certificate Management System &bull; PDF.js & Tesseract OCR Powered
+    CBSE Capacity Building Programme (CBP) Certificate Management System &bull; AI Gemini Vision Powered
   </footer>
 
   <script>
@@ -296,9 +288,6 @@
       t.cbps = t.cbps.filter(c => !c.topic.includes('3030 Eklavya') && c.topic !== 'Competency Assessment');
       t.cbps.push(...JSON.parse(JSON.stringify(EKLAVYA_MODULES_TEMPLATE)));
     });
-
-    // Configure PDF.js worker
-    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
     let supabaseClient = null;
     let uploadedRecords = []; 
@@ -513,7 +502,7 @@
       const cbp = currentTeacher.cbps[cbpIndex];
 
       try {
-        // --- CHECK 1: DUPLICATE FILE REUSE PREVENTION ---
+        // --- 1. DUPLICATE FILE REUSE PREVENTION ---
         const fileFingerprint = `${file.name}_${file.size}`;
         const alreadyUsed = uploadedRecords.find(r => 
           String(r.teacher_id) === String(currentTeacher.teacher_id) &&
@@ -522,212 +511,94 @@
         );
 
         if (alreadyUsed) {
-          showStatus(statusBox, 'error', `❌ Duplicate Error: Yeh certificate aap pehle hi "${alreadyUsed.cbp_topic}" mein upload kar chuke hain. Har module ke liye alag certificate dalein.`);
+          showStatus(statusBox, 'error', `❌ Duplicate Error: Yeh certificate aap pehle hi "${alreadyUsed.cbp_topic}" mein upload kar chuke hain.`);
           event.target.value = '';
           return;
         }
 
-        showStatus(statusBox, 'loading', '🔍 Strict Certificate Verification chal raha hai...');
-        
-        let extractedText = '';
-        if (isPDF) {
-          extractedText = await extractTextFromPDF(file);
-        } else if (isImage) {
-          extractedText = await extractTextFromImage(file);
+        showStatus(statusBox, 'loading', '☁️ Uploading to storage...');
+
+        // --- 2. UPLOAD TO SUPABASE STORAGE FIRST ---
+        const fileExt = file.name.split('.').pop().toLowerCase() || (isPDF ? 'pdf' : 'jpg');
+        const folderName = `${sanitizeFolderName(currentTeacher.name)}_${currentTeacher.teacher_id}`;
+        const cleanTopic = sanitizeFolderName(cbp.topic);
+        const filePath = `${folderName}/${cleanTopic}_${Date.now()}.${fileExt}`;
+
+        if (!supabaseClient) {
+          throw new Error("Supabase is not connected. Please check configuration.");
         }
 
-        const normalizedText = normalizeText(extractedText);
-        console.log("--- EXTRACTED CERTIFICATE TEXT ---");
-        console.log(normalizedText);
-        console.log("----------------------------------");
+        const { error: uploadError } = await supabaseClient.storage
+          .from(STORAGE_BUCKET)
+          .upload(filePath, file, { cacheControl: '3600', upsert: true, contentType: file.type });
 
-        // --- CHECK 2: STRICT MANDATORY NAME & TOPIC VERIFICATION ---
-        const verification = verifyCertificateContent(normalizedText, currentTeacher.name, cbp.topic);
+        if (uploadError) throw new Error("Storage Upload Error: " + uploadError.message);
 
-        if (!verification.isValid) {
-          showStatus(statusBox, 'error', `❌ Upload Rejected: ${verification.reason}`);
+        const { data: publicUrlData } = supabaseClient.storage
+          .from(STORAGE_BUCKET)
+          .getPublicUrl(filePath);
+
+        const publicUrl = publicUrlData.publicUrl;
+
+        // --- 3. CALL SUPABASE EDGE FUNCTION FOR AI GEMINI VISION VERIFICATION ---
+        showStatus(statusBox, 'loading', '🤖 AI Gemini Vision Certificate Verify kar raha hai (Kripya 5-10 seconds wait karein)...');
+
+        const { data: aiRes, error: aiError } = await supabaseClient.functions.invoke('verify-certificate', {
+          body: {
+            fileUrl: publicUrl,
+            teacherName: currentTeacher.name,
+            expectedTopic: cbp.topic
+          }
+        });
+
+        if (aiError) {
+          throw new Error("AI Verification Function Error: " + aiError.message);
+        }
+
+        if (!aiRes || !aiRes.verified) {
+          const reason = aiRes?.reason || "Certificate par teacher ka naam ya topic match nahi hua.";
+          showStatus(statusBox, 'error', `❌ AI Verification Rejected: ${reason}`);
           event.target.value = '';
           return;
         }
 
-        await uploadToSupabase(file, cbp, cbpIndex, statusBox, fileFingerprint);
+        // --- 4. SAVE TO DATABASE ---
+        showStatus(statusBox, 'loading', '💾 AI Verified! Database mein save ho raha hai...');
+
+        const recordPayload = {
+          teacher_id: currentTeacher.teacher_id,
+          teacher_name: currentTeacher.name,
+          cbp_domain: cbp.domain,
+          cbp_topic: cbp.topic,
+          cbp_date: cbp.date,
+          cbp_hours: cbp.hours,
+          file_path: filePath,
+          file_url: publicUrl,
+          file_fingerprint: fileFingerprint,
+          verified: true,
+          uploaded_at: new Date().toISOString()
+        };
+
+        const { data: dbData, error: dbError } = await supabaseClient
+          .from('cbp_certificates')
+          .upsert(recordPayload, { onConflict: 'teacher_id,cbp_topic' })
+          .select();
+
+        if (dbError) throw new Error("Database Save Error: " + dbError.message);
+
+        uploadedRecords = uploadedRecords.filter(r =>
+          !(String(r.teacher_id) === String(currentTeacher.teacher_id) && r.cbp_topic === cbp.topic)
+        );
+        uploadedRecords.unshift(dbData ? dbData[0] : recordPayload);
+
+        renderAdminRecords();
+        renderTeacherCBPs(currentTeacher);
+        showStatus(statusBox, 'success', '✅ Successfully Uploaded & AI Verified!');
 
       } catch (err) {
         console.error(err);
         showStatus(statusBox, 'error', `⚠️ Error: ${err.message}`);
       }
-    }
-
-    function normalizeText(str) {
-      return str.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
-    }
-
-    function verifyCertificateContent(normalizedFileText, teacherName, cbpTopic) {
-      if (!normalizedFileText || normalizedFileText.length < 15) {
-        return { isValid: false, reason: "Certificate blank hai ya text read nahi ho paya. Sahi file upload karein." };
-      }
-
-      // 1. MANDATORY TEACHER NAME CHECK (Strict match required for both parts if multi-word)
-      const nameParts = normalizeText(teacherName).split(' ').filter(w => w.length >= 2);
-      let nameMatched = false;
-
-      if (nameParts.length > 1) {
-        // For names like "Renu Malik", both parts or at least the unique surname/first name must be present
-        const firstName = nameParts[0];
-        const lastName = nameParts[nameParts.length - 1];
-        nameMatched = normalizedFileText.includes(firstName) && normalizedFileText.includes(lastName);
-      } else {
-        nameMatched = normalizedFileText.includes(nameParts[0]);
-      }
-
-      if (!nameMatched) {
-        return { 
-          isValid: false, 
-          reason: `Verification Failed: Certificate mein selected teacher ka naam ("${teacherName}") nahi mila. Kripya apna hi valid certificate upload karein.` 
-        };
-      }
-
-      // 2. MANDATORY TOPIC / EPISODE CHECK
-      const lowerTopic = cbpTopic.toLowerCase();
-
-      if (lowerTopic.includes('eklavya')) {
-        const epMatch = lowerTopic.match(/ep\s*([0-9]+)/);
-        const epNum = epMatch ? epMatch[1] : null;
-
-        const hasEklavya = normalizedFileText.includes('eklavya') || normalizedFileText.includes('3030');
-        const hasEp = epNum ? (normalizedFileText.includes(epNum) || normalizedFileText.includes(`ep ${epNum}`) || normalizedFileText.includes(`episode ${epNum}`)) : true;
-
-        if (!hasEklavya || !hasEp) {
-          return { 
-            isValid: false, 
-            reason: `Verification Failed: Yeh certificate "${cbpTopic}" ka nahi hai (Episode/Program mismatch). Sahi episode ka certificate dalein.` 
-          };
-        }
-      } else {
-        // For CBSE CBP / Active Learning / Storytelling etc.
-        const cleanTopic = cbpTopic.replace(/[()\-:]/g, ' ');
-        const stopWords = ['in', 'of', 'the', 'and', 'as', 'about', 'for', 'to', 'a', 'vs', 'senior', 'secondary', 'one', 'day'];
-        const rawTokens = normalizeText(cleanTopic).split(' ').filter(w => w.length >= 3 && !stopWords.includes(w));
-        
-        if (rawTokens.length > 0) {
-          // At least one core topic keyword must be present in the certificate text
-          const keywordFound = rawTokens.some(t => normalizedFileText.includes(t));
-          if (!keywordFound) {
-            return { 
-              isValid: false, 
-              reason: `Verification Failed: Certificate ka course/topic "${cbpTopic}" se match nahi ho raha hai.` 
-            };
-          }
-        }
-      }
-
-      return { isValid: true };
-    }
-
-    async function uploadToSupabase(file, cbp, cbpIndex, statusBox, fileFingerprint) {
-      showStatus(statusBox, 'loading', '☁️ Verified! Supabase Storage mein upload ho raha hai...');
-
-      if (!supabaseClient) {
-        setTimeout(() => {
-          const fakeUrl = URL.createObjectURL(file);
-          uploadedRecords.push({
-            teacher_id: currentTeacher.teacher_id,
-            teacher_name: currentTeacher.name,
-            cbp_domain: cbp.domain,
-            cbp_topic: cbp.topic,
-            cbp_date: cbp.date,
-            cbp_hours: cbp.hours,
-            file_url: fakeUrl,
-            file_fingerprint: fileFingerprint,
-            verified: true,
-            uploaded_at: new Date().toISOString()
-          });
-          renderTeacherCBPs(currentTeacher);
-          showStatus(statusBox, 'success', '✅ Successfully Uploaded & Verified!');
-        }, 600);
-        return;
-      }
-
-      const fileExt = file.name.split('.').pop().toLowerCase() || (file.type === 'application/pdf' ? 'pdf' : 'jpg');
-      const folderName = `${sanitizeFolderName(currentTeacher.name)}_${currentTeacher.teacher_id}`;
-      const cleanTopic = sanitizeFolderName(cbp.topic);
-      const filePath = `${folderName}/${cleanTopic}_${Date.now()}.${fileExt}`;
-
-      const { error: uploadError } = await supabaseClient.storage
-        .from(STORAGE_BUCKET)
-        .upload(filePath, file, { cacheControl: '3600', upsert: true, contentType: file.type });
-
-      if (uploadError) throw new Error("Storage Upload Error: " + uploadError.message);
-
-      const { data: publicUrlData } = supabaseClient.storage
-        .from(STORAGE_BUCKET)
-        .getPublicUrl(filePath);
-
-      const publicUrl = publicUrlData.publicUrl;
-
-      showStatus(statusBox, 'loading', '💾 Database save ho raha hai...');
-
-      const recordPayload = {
-        teacher_id: currentTeacher.teacher_id,
-        teacher_name: currentTeacher.name,
-        cbp_domain: cbp.domain,
-        cbp_topic: cbp.topic,
-        cbp_date: cbp.date,
-        cbp_hours: cbp.hours,
-        file_path: filePath,
-        file_url: publicUrl,
-        file_fingerprint: fileFingerprint,
-        verified: true,
-        uploaded_at: new Date().toISOString()
-      };
-
-      const { data: dbData, error: dbError } = await supabaseClient
-        .from('cbp_certificates')
-        .upsert(recordPayload, { onConflict: 'teacher_id,cbp_topic' })
-        .select();
-
-      if (dbError) throw new Error("Database Save Error: " + dbError.message);
-
-      uploadedRecords = uploadedRecords.filter(r =>
-        !(String(r.teacher_id) === String(currentTeacher.teacher_id) && r.cbp_topic === cbp.topic)
-      );
-      uploadedRecords.unshift(dbData ? dbData[0] : recordPayload);
-
-      renderAdminRecords();
-      renderTeacherCBPs(currentTeacher);
-    }
-
-    async function extractTextFromPDF(file) {
-      const arrayBuffer = await file.arrayBuffer();
-      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-      let fullText = '';
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const page = await pdf.getPage(i);
-        const textContent = await page.getTextContent();
-        fullText += ' ' + textContent.items.map(item => item.str).join(' ');
-      }
-
-      if (fullText.trim().length < 30) {
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i);
-          const viewport = page.getViewport({ scale: 1.5 });
-          const canvas = document.createElement('canvas');
-          const context = canvas.getContext('2d');
-          canvas.height = viewport.height;
-          canvas.width = viewport.width;
-          await page.render({ canvasContext: context, viewport: viewport }).promise;
-          const imgDataUrl = canvas.toDataURL('image/png');
-          const ocrRes = await Tesseract.recognize(imgDataUrl, 'eng');
-          fullText += ' ' + ocrRes.data.text;
-        }
-      }
-
-      return fullText;
-    }
-
-    async function extractTextFromImage(file) {
-      const result = await Tesseract.recognize(file, 'eng');
-      return result.data.text || '';
     }
 
     function sanitizeFolderName(str) {
