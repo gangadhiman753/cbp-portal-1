@@ -427,6 +427,7 @@
       const previewBox = document.getElementById(`preview-box-${cbpIndex}`);
       previewBox.classList.remove('hidden');
 
+      const isImage = file.type.startsWith('image/');
       const fileSizeKB = (file.size / 1024).toFixed(1);
 
       previewBox.innerHTML = `
