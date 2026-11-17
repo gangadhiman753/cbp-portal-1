@@ -278,26 +278,100 @@
       });
     });
 
-    async function initSupabase() {
-      const url = HARDCODED_SUPABASE_URL;
-      const key = HARDCODED_SUPABASE_ANON_KEY;
-      const badge = document.getElementById('db-status-badge');
+   async function processAndUploadFile(event, cbpIndex) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const statusBox = document.getElementById(`status-box-${cbpIndex}`);
+      statusBox.classList.remove('hidden');
+
+      const isPDF = file.type === 'application/pdf';
+      const isImage = file.type.startsWith('image/');
+
+      if (!isPDF && !isImage) {
+        showStatus(statusBox, 'error', '❌ Invalid File: Kripya sirf PDF ya Image (JPG/PNG) file hi upload karein.');
+        event.target.value = '';
+        return;
+      }
+
+      const cbp = currentTeacher.cbps[cbpIndex];
 
       try {
-        supabaseClient = window.supabase.createClient(url, key);
-        const { data, error } = await supabaseClient
-          .from('cbp_certificates')
-          .select('*')
-          .order('uploaded_at', { ascending: false });
+        showStatus(statusBox, 'loading', '☁️ Uploading certificate to storage...');
 
-        if (error) throw error;
-        uploadedRecords = data || [];
-        badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400"></span> Supabase Connected`;
+        const fileExt = file.name.split('.').pop().toLowerCase() || (isPDF ? 'pdf' : 'jpg');
+        const folderName = `${sanitizeFolderName(currentTeacher.name)}_${currentTeacher.teacher_id}`;
+        const cleanTopic = sanitizeFolderName(cbp.topic);
+        const filePath = `${folderName}/${cleanTopic}_${Date.now()}.${fileExt}`;
+
+        if (!supabaseClient) throw new Error("Supabase connected nahi hai.");
+
+        const { error: uploadError } = await supabaseClient.storage
+          .from(STORAGE_BUCKET)
+          .upload(filePath, file, { cacheControl: '3600', upsert: true, contentType: file.type });
+
+        if (uploadError) throw new Error("Storage Upload Error: " + uploadError.message);
+
+        const { data: publicUrlData } = supabaseClient.storage
+          .from(STORAGE_BUCKET)
+          .getPublicUrl(filePath);
+
+        const publicUrl = publicUrlData.publicUrl;
+
+        // --- AI SMART TOPIC & EPISODE VERIFICATION ---
+        showStatus(statusBox, 'loading', '🤖 AI checking certificate topic & episode match...');
+
+        const { data: aiRes, error: aiError } = await supabaseClient.functions.invoke('verify-certificate', {
+          body: {
+            fileUrl: publicUrl,
+            teacherName: currentTeacher.name,
+            expectedTopic: cbp.topic
+          }
+        });
+
+        if (!aiError && aiRes && aiRes.verified === false) {
+          // Delete wrongly uploaded file from storage so it doesn't clutter
+          await supabaseClient.storage.from(STORAGE_BUCKET).remove([filePath]);
+          
+          showStatus(statusBox, 'error', `❌ Verification Failed: ${aiRes.reason || 'Yeh certificate is topic/episode se match nahi ho raha hai.'}`);
+          event.target.value = '';
+          return;
+        }
+
+        showStatus(statusBox, 'loading', '💾 Saving verified record to database...');
+
+        const recordPayload = {
+          teacher_id: currentTeacher.teacher_id,
+          teacher_name: currentTeacher.name,
+          cbp_domain: cbp.domain,
+          cbp_topic: cbp.topic,
+          cbp_date: cbp.date,
+          cbp_hours: cbp.hours,
+          file_path: filePath,
+          file_url: publicUrl,
+          verified: true,
+          uploaded_at: new Date().toISOString()
+        };
+
+        const { data: dbData, error: dbError } = await supabaseClient
+          .from('cbp_certificates')
+          .upsert(recordPayload, { onConflict: 'teacher_id,cbp_topic' })
+          .select();
+
+        if (dbError) throw new Error("Database Save Error: " + dbError.message);
+
+        uploadedRecords = uploadedRecords.filter(r =>
+          !(String(r.teacher_id) === String(currentTeacher.teacher_id) && r.cbp_topic === cbp.topic)
+        );
+        uploadedRecords.unshift(dbData ? dbData[0] : recordPayload);
+
         renderAdminRecords();
-        if (currentTeacher) renderTeacherCBPs(currentTeacher);
+        renderTeacherCBPs(currentTeacher);
+        showStatus(statusBox, 'success', '✅ Successfully Verified & Uploaded!');
+
       } catch (err) {
-        console.error("Supabase init error:", err);
-        badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-400"></span> DB Table Error`;
+        console.error(err);
+        showStatus(statusBox, 'error', `⚠️ Error: ${err.message}`);
       }
     }
 
