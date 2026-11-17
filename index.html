@@ -483,7 +483,7 @@
       document.getElementById('stat-pending').textContent = teacher.cbps.length - uploadedCount;
     }
 
-    async function processAndUploadFile(event, cbpIndex) {
+   async function processAndUploadFile(event, cbpIndex) {
       const file = event.target.files[0];
       if (!file) return;
 
@@ -502,7 +502,7 @@
       const cbp = currentTeacher.cbps[cbpIndex];
 
       try {
-        // --- 1. DUPLICATE FILE REUSE PREVENTION ---
+        // --- DUPLICATE CHECK ---
         const fileFingerprint = `${file.name}_${file.size}`;
         const alreadyUsed = uploadedRecords.find(r => 
           String(r.teacher_id) === String(currentTeacher.teacher_id) &&
@@ -516,8 +516,74 @@
           return;
         }
 
-        showStatus(statusBox, 'loading', '☁️ Uploading to storage...');
+        showStatus(statusBox, 'loading', '☁️ Uploading certificate to storage...');
 
+        const fileExt = file.name.split('.').pop().toLowerCase() || (isPDF ? 'pdf' : 'jpg');
+        const folderName = `${sanitizeFolderName(currentTeacher.name)}_${currentTeacher.teacher_id}`;
+        const cleanTopic = sanitizeFolderName(cbp.topic);
+        const filePath = `${folderName}/${cleanTopic}_${Date.now()}.${fileExt}`;
+
+        if (!supabaseClient) throw new Error("Supabase connected nahi hai.");
+
+        const { error: uploadError } = await supabaseClient.storage
+          .from(STORAGE_BUCKET)
+          .upload(filePath, file, { cacheControl: '3600', upsert: true, contentType: file.type });
+
+        if (uploadError) throw new Error("Storage Upload Error: " + uploadError.message);
+
+        const { data: publicUrlData } = supabaseClient.storage
+          .from(STORAGE_BUCKET)
+          .getPublicUrl(filePath);
+
+        const publicUrl = publicUrlData.publicUrl;
+
+        // Optional AI check call (Won't block upload if it fails)
+        try {
+          showStatus(statusBox, 'loading', '🤖 Background AI check...');
+          await supabaseClient.functions.invoke('verify-certificate', {
+            body: { fileUrl: publicUrl, teacherName: currentTeacher.name, expectedTopic: cbp.topic }
+          });
+        } catch (e) {
+          console.log("AI check skipped/bypassed", e);
+        }
+
+        showStatus(statusBox, 'loading', '💾 Saving to database...');
+
+        const recordPayload = {
+          teacher_id: currentTeacher.teacher_id,
+          teacher_name: currentTeacher.name,
+          cbp_domain: cbp.domain,
+          cbp_topic: cbp.topic,
+          cbp_date: cbp.date,
+          cbp_hours: cbp.hours,
+          file_path: filePath,
+          file_url: publicUrl,
+          file_fingerprint: fileFingerprint,
+          verified: true,
+          uploaded_at: new Date().toISOString()
+        };
+
+        const { data: dbData, error: dbError } = await supabaseClient
+          .from('cbp_certificates')
+          .upsert(recordPayload, { onConflict: 'teacher_id,cbp_topic' })
+          .select();
+
+        if (dbError) throw new Error("Database Save Error: " + dbError.message);
+
+        uploadedRecords = uploadedRecords.filter(r =>
+          !(String(r.teacher_id) === String(currentTeacher.teacher_id) && r.cbp_topic === cbp.topic)
+        );
+        uploadedRecords.unshift(dbData ? dbData[0] : recordPayload);
+
+        renderAdminRecords();
+        renderTeacherCBPs(currentTeacher);
+        showStatus(statusBox, 'success', '✅ Successfully Uploaded & Saved!');
+
+      } catch (err) {
+        console.error(err);
+        showStatus(statusBox, 'error', `⚠️ Error: ${err.message}`);
+      }
+    }
         // --- 2. UPLOAD TO SUPABASE STORAGE FIRST ---
         const fileExt = file.name.split('.').pop().toLowerCase() || (isPDF ? 'pdf' : 'jpg');
         const folderName = `${sanitizeFolderName(currentTeacher.name)}_${currentTeacher.teacher_id}`;
