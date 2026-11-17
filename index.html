@@ -439,6 +439,7 @@
 
         if (!supabaseClient) throw new Error("Supabase connected nahi hai.");
 
+        // 1. Upload file directly to Supabase storage
         const { error: uploadError } = await supabaseClient.storage
           .from(STORAGE_BUCKET)
           .upload(filePath, file, { cacheControl: '3600', upsert: true, contentType: file.type });
@@ -451,8 +452,9 @@
 
         const publicUrl = publicUrlData.publicUrl;
 
-        showStatus(statusBox, 'loading', '💾 Saving to database...');
+        showStatus(statusBox, 'loading', '💾 Saving record to database...');
 
+        // 2. Prepare record payload
         const recordPayload = {
           teacher_id: currentTeacher.teacher_id,
           teacher_name: currentTeacher.name,
@@ -462,10 +464,11 @@
           cbp_hours: cbp.hours,
           file_path: filePath,
           file_url: publicUrl,
-          verified: true,
+          verified: true, // Direct successful upload & record
           uploaded_at: new Date().toISOString()
         };
 
+        // 3. Save to database table
         const { data: dbData, error: dbError } = await supabaseClient
           .from('cbp_certificates')
           .upsert(recordPayload, { onConflict: 'teacher_id,cbp_topic' })
@@ -487,7 +490,7 @@
         showStatus(statusBox, 'error', `⚠️ Error: ${err.message}`);
       }
     }
-
+    
     function sanitizeFolderName(str) {
       return str.trim().replace(/[^a-zA-Z0-9_-]/g, '_').replace(/_+/g, '_');
     }
