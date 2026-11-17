@@ -30,7 +30,7 @@
       <div>
         <span class="inline-block bg-indigo-700 text-indigo-100 text-xs font-semibold px-2.5 py-0.5 rounded-full uppercase tracking-wider mb-1">CBSE Training Records</span>
         <h1 class="text-xl sm:text-2xl font-bold tracking-tight">CBP Certificate Upload Portal</h1>
-        <p class="text-indigo-200 text-xs sm:text-sm mt-0.5">Select name, preview before upload & direct secure sync</p>
+        <p class="text-indigo-200 text-xs sm:text-sm mt-0.5">Select name, preview before upload & secure sync</p>
       </div>
       <div class="flex items-center gap-2">
         <span id="db-status-badge" class="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-indigo-800 text-indigo-200 border border-indigo-700">
@@ -93,10 +93,10 @@
       </div>
     </section>
 
-    <!-- Step 2: CBP Modules List & Upload with Preview -->
+    <!-- Step 2: CBP Modules List & Preview Upload -->
     <section id="cbp-list-section" class="hidden space-y-4">
       <div class="flex items-center justify-between">
-        <h3 class="text-base font-bold text-gray-900">2. Attended CBP Modules (Upload & Preview Certificates)</h3>
+        <h3 class="text-base font-bold text-gray-900">2. Attended CBP Modules (Preview & Upload)</h3>
         <span class="text-xs text-gray-500 bg-white px-2.5 py-1 rounded-md border border-gray-200">PDF, JPG, PNG allowed</span>
       </div>
 
@@ -113,7 +113,7 @@
         </svg>
       </div>
       <h3 class="text-base font-semibold text-gray-900">No Teacher Selected</h3>
-      <p class="text-sm text-gray-500 mt-1 max-w-md mx-auto">Upar diye gaye dropdown se apna naam chunein. Aapke saamne aapke saare CBP modules aur certificate upload / preview options khul jayenge.</p>
+      <p class="text-sm text-gray-500 mt-1 max-w-md mx-auto">Upar diye gaye dropdown se apna naam chunein. Aapke saamne aapke saare CBP modules aur upload options khul jayenge.</p>
     </div>
 
   </main>
@@ -140,20 +140,14 @@
 
   <!-- Footer -->
   <footer class="text-center text-xs text-gray-400 py-5 border-t border-gray-200 bg-white mt-auto">
-    CBSE Capacity Building Programme (CBP) Certificate Management System &bull; Simple & Direct Sync
+    CBSE Capacity Building Programme (CBP) Certificate Management System &bull; Preview & Direct Sync
   </footer>
 
   <script>
-    // =========================================================================
-    // 1. SUPABASE CONFIGURATION
-    // =========================================================================
     const HARDCODED_SUPABASE_URL = "https://kclurppujjhrzwpawals.supabase.co";
     const HARDCODED_SUPABASE_ANON_KEY = "sb_publishable_cLEsEEvnJoQsUHKRS4gVLw_QHlmJSfH";
     const STORAGE_BUCKET = "cbp-certificates";
 
-    // =========================================================================
-    // 2. EKLAVYA & COMPETENCY ASSESSMENT MODULES TEMPLATE
-    // =========================================================================
     const EKLAVYA_MODULES_TEMPLATE = [
       {domain: "Domain 2", topic: "3030 Eklavya Program - Ep 1: Man Vs माचिस", date: "15/08/2026", hours: 3},
       {domain: "Domain 2", topic: "3030 Eklavya Program - Ep 2: Sustainability: Dharti Ek, Maange Anek", date: "23/08/2026", hours: 3},
@@ -166,9 +160,6 @@
       {domain: "Domain 2", topic: "Competency Assessment", date: "Aug - Oct, 2026", hours: 4}
     ];
 
-    // =========================================================================
-    // 3. TEACHERS DATA (75 Teachers)
-    // =========================================================================
     const TEACHERS_DATA = [
       {sr_no: 1, teacher_id: "604353", name: "Renu Malik", cbps: [{domain: "Domain 1", topic: "Gender Sensitivity in Schools", date: "24/10/2026", hours: 6}, {domain: "Domain 2", topic: "Accountancy (Senior Secondary)", date: "28/11/2026 29/11/2026", hours: 12}, {domain: "Domain 3", topic: "Happy Classroom", date: "19/12/2026", hours: 3}, {domain: "Domain 2", topic: "Active Learning", date: "27/06/2026", hours: 4}]},
       {sr_no: 2, teacher_id: "2751800", name: "ANCHAL KAMBOJ", cbps: [{domain: "Domain 1", topic: "Gender Sensitivity in Schools", date: "24/10/2026", hours: 6}, {domain: "Domain 2", topic: "Mathematics (Secondary)", date: "02/01/2027 03/01/2027", hours: 12}, {domain: "Domain 3", topic: "Happy Classroom", date: "19/12/2026", hours: 3}, {domain: "Domain 2", topic: "Educating Parents about Education", date: "10/10/2026", hours: 4}]},
@@ -247,7 +238,6 @@
       {sr_no: 75, teacher_id: "3397160", name: "VIKRAMJEET SINGH", cbps: [{domain: "Domain 1", topic: "Gender Sensitivity in Schools", date: "24/10/2026", hours: 6}, {domain: "Domain 2", topic: "Educating Parents about Education", date: "10/10/2026", hours: 4}, {domain: "Domain 3", topic: "Happy Classroom", date: "19/12/2026", hours: 3}]}
     ];
 
-    // Automatically append Eklavya modules & Competency Assessment to every teacher
     TEACHERS_DATA.forEach(t => {
       t.cbps = t.cbps.filter(c => !c.topic.includes('3030 Eklavya') && c.topic !== 'Competency Assessment');
       t.cbps.push(...JSON.parse(JSON.stringify(EKLAVYA_MODULES_TEMPLATE)));
@@ -398,13 +388,13 @@
                   </button>
                 </div>
               `}
-              <input type="file" id="${fileInputId}" accept="application/pdf,image/png,image/jpeg,image/jpg" class="hidden" onchange="previewAndConfirmFile(event, ${index})" />
+              <input type="file" id="${fileInputId}" accept="application/pdf,image/png,image/jpeg,image/jpg" class="hidden" onchange="previewSelectedFile(event, ${index})" />
             </div>
           </div>
 
-          <!-- Preview & Upload Confirmation Box -->
-          <div id="${previewBoxId}" class="hidden mt-4 p-3 bg-gray-50 border border-gray-200 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
-            <!-- Preview content inserted dynamically -->
+          <!-- Preview & Confirmation Box -->
+          <div id="${previewBoxId}" class="hidden mt-4 p-3 bg-indigo-50/50 border border-indigo-100 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+            <!-- Dynamic Preview Content -->
           </div>
 
           <!-- Status Box -->
@@ -419,43 +409,53 @@
       document.getElementById('stat-pending').textContent = teacher.cbps.length - uploadedCount;
     }
 
-    // STEP 1: Preview file before uploading so teacher can confirm
-    function previewAndConfirmFile(event, cbpIndex) {
+    // Step 1: Preview file details before final upload
+    function previewSelectedFile(event, cbpIndex) {
       const file = event.target.files[0];
       if (!file) return;
 
       const previewBox = document.getElementById(`preview-box-${cbpIndex}`);
       previewBox.classList.remove('hidden');
 
-      const isImage = file.type.startsWith('image/');
       const fileSizeKB = (file.size / 1024).toFixed(1);
+      const isImage = file.type.startsWith('image/');
+      let fileThumbnail = '';
+
+      if (isImage) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          document.getElementById(`thumb-${cbpIndex}`).src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+        fileThumbnail = `<img id="thumb-${cbpIndex}" class="w-10 h-10 object-cover rounded-lg border border-indigo-200" src="" alt="preview" />`;
+      } else {
+        fileThumbnail = `<div class="w-10 h-10 bg-red-100 text-red-700 rounded-lg flex items-center justify-center font-bold text-xs uppercase">PDF</div>`;
+      }
 
       previewBox.innerHTML = `
         <div class="flex items-center gap-3">
-          <div class="w-10 h-10 bg-indigo-100 text-indigo-700 rounded-lg flex items-center justify-center font-bold text-xs uppercase">
-            ${file.name.split('.').pop()}
-          </div>
+          ${fileThumbnail}
           <div>
-            <p class="font-bold text-gray-800 truncate max-w-xs">${file.name}</p>
-            <p class="text-gray-500">${fileSizeKB} KB &bull; <span class="text-indigo-600 font-semibold">Ready to upload</span></p>
+            <p class="font-bold text-gray-900 truncate max-w-xs">📁 ${file.name}</p>
+            <p class="text-indigo-700 font-medium">${fileSizeKB} KB &bull; Ready to confirm & upload</p>
           </div>
         </div>
         <div class="flex items-center gap-2 w-full sm:w-auto justify-end">
-          <button onclick="cancelPreview(${cbpIndex})" type="button" class="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg font-medium">Cancel</button>
-          <button onclick="uploadConfirmedFile(${cbpIndex})" type="button" class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold shadow-xs">🚀 Confirm & Upload</button>
+          <button onclick="cancelUploadSelection(${cbpIndex})" type="button" class="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg font-medium">Cancel</button>
+          <button onclick="executeConfirmedUpload(${cbpIndex})" type="button" class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold shadow-xs">🚀 Confirm & Upload</button>
         </div>
       `;
     }
 
-    function cancelPreview(cbpIndex) {
+    function cancelUploadSelection(cbpIndex) {
       const previewBox = document.getElementById(`preview-box-${cbpIndex}`);
       previewBox.classList.add('hidden');
       previewBox.innerHTML = '';
       document.getElementById(`file-input-${cbpIndex}`).value = '';
     }
 
-    // STEP 2: Direct Reliable Upload after confirmation
-    async function uploadConfirmedFile(cbpIndex) {
+    // Step 2: Upload after teacher confirms
+    async function executeConfirmedUpload(cbpIndex) {
       const fileInput = document.getElementById(`file-input-${cbpIndex}`);
       const file = fileInput.files[0];
       if (!file) return;
@@ -469,7 +469,7 @@
       const cbp = currentTeacher.cbps[cbpIndex];
 
       try {
-        showStatus(statusBox, 'loading', '☁️ Uploading certificate securely to Supabase...');
+        showStatus(statusBox, 'loading', '☁️ Uploading certificate to storage...');
 
         const fileExt = file.name.split('.').pop().toLowerCase() || 'pdf';
         const folderName = `${sanitizeFolderName(currentTeacher.name)}_${currentTeacher.teacher_id}`;
