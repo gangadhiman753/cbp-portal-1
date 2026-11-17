@@ -30,11 +30,11 @@
       <div>
         <span class="inline-block bg-indigo-700 text-indigo-100 text-xs font-semibold px-2.5 py-0.5 rounded-full uppercase tracking-wider mb-1">CBSE Training Records</span>
         <h1 class="text-xl sm:text-2xl font-bold tracking-tight">CBP Certificate Upload Portal</h1>
-        <p class="text-indigo-200 text-xs sm:text-sm mt-0.5">Select your name, direct secure upload & sync</p>
+        <p class="text-indigo-200 text-xs sm:text-sm mt-0.5">Select name, preview before upload & direct secure sync</p>
       </div>
       <div class="flex items-center gap-2">
         <span id="db-status-badge" class="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full bg-indigo-800 text-indigo-200 border border-indigo-700">
-          <span class="w-2 h-2 rounded-full bg-yellow-400"></span> Checking Supabase...
+          <span class="w-2 h-2 rounded-full bg-yellow-400"></span> Connecting Supabase...
         </span>
         <button onclick="toggleAdminModal()" class="text-xs bg-indigo-800 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg border border-indigo-600 transition">
           ⚙️ Admin / Records
@@ -93,10 +93,10 @@
       </div>
     </section>
 
-    <!-- Step 2: CBP Modules List & Upload -->
+    <!-- Step 2: CBP Modules List & Upload with Preview -->
     <section id="cbp-list-section" class="hidden space-y-4">
       <div class="flex items-center justify-between">
-        <h3 class="text-base font-bold text-gray-900">2. Attended CBP Modules (Upload PDF or Image Certificates)</h3>
+        <h3 class="text-base font-bold text-gray-900">2. Attended CBP Modules (Upload & Preview Certificates)</h3>
         <span class="text-xs text-gray-500 bg-white px-2.5 py-1 rounded-md border border-gray-200">PDF, JPG, PNG allowed</span>
       </div>
 
@@ -113,7 +113,7 @@
         </svg>
       </div>
       <h3 class="text-base font-semibold text-gray-900">No Teacher Selected</h3>
-      <p class="text-sm text-gray-500 mt-1 max-w-md mx-auto">Upar diye gaye dropdown se apna naam chunein. Aapke saamne aapke saare CBP modules aur unke certificate upload karne ke buttons khul jayenge.</p>
+      <p class="text-sm text-gray-500 mt-1 max-w-md mx-auto">Upar diye gaye dropdown se apna naam chunein. Aapke saamne aapke saare CBP modules aur certificate upload / preview options khul jayenge.</p>
     </div>
 
   </main>
@@ -140,7 +140,7 @@
 
   <!-- Footer -->
   <footer class="text-center text-xs text-gray-400 py-5 border-t border-gray-200 bg-white mt-auto">
-    CBSE Capacity Building Programme (CBP) Certificate Management System &bull; Direct Secure Sync
+    CBSE Capacity Building Programme (CBP) Certificate Management System &bull; Simple & Direct Sync
   </footer>
 
   <script>
@@ -167,7 +167,7 @@
     ];
 
     // =========================================================================
-    // 3. TEACHERS DATA
+    // 3. TEACHERS DATA (75 Teachers)
     // =========================================================================
     const TEACHERS_DATA = [
       {sr_no: 1, teacher_id: "604353", name: "Renu Malik", cbps: [{domain: "Domain 1", topic: "Gender Sensitivity in Schools", date: "24/10/2026", hours: 6}, {domain: "Domain 2", topic: "Accountancy (Senior Secondary)", date: "28/11/2026 29/11/2026", hours: 12}, {domain: "Domain 3", topic: "Happy Classroom", date: "19/12/2026", hours: 3}, {domain: "Domain 2", topic: "Active Learning", date: "27/06/2026", hours: 4}]},
@@ -278,100 +278,26 @@
       });
     });
 
-   async function processAndUploadFile(event, cbpIndex) {
-      const file = event.target.files[0];
-      if (!file) return;
-
-      const statusBox = document.getElementById(`status-box-${cbpIndex}`);
-      statusBox.classList.remove('hidden');
-
-      const isPDF = file.type === 'application/pdf';
-      const isImage = file.type.startsWith('image/');
-
-      if (!isPDF && !isImage) {
-        showStatus(statusBox, 'error', '❌ Invalid File: Kripya sirf PDF ya Image (JPG/PNG) file hi upload karein.');
-        event.target.value = '';
-        return;
-      }
-
-      const cbp = currentTeacher.cbps[cbpIndex];
+    async function initSupabase() {
+      const url = HARDCODED_SUPABASE_URL;
+      const key = HARDCODED_SUPABASE_ANON_KEY;
+      const badge = document.getElementById('db-status-badge');
 
       try {
-        showStatus(statusBox, 'loading', '☁️ Uploading certificate to storage...');
-
-        const fileExt = file.name.split('.').pop().toLowerCase() || (isPDF ? 'pdf' : 'jpg');
-        const folderName = `${sanitizeFolderName(currentTeacher.name)}_${currentTeacher.teacher_id}`;
-        const cleanTopic = sanitizeFolderName(cbp.topic);
-        const filePath = `${folderName}/${cleanTopic}_${Date.now()}.${fileExt}`;
-
-        if (!supabaseClient) throw new Error("Supabase connected nahi hai.");
-
-        const { error: uploadError } = await supabaseClient.storage
-          .from(STORAGE_BUCKET)
-          .upload(filePath, file, { cacheControl: '3600', upsert: true, contentType: file.type });
-
-        if (uploadError) throw new Error("Storage Upload Error: " + uploadError.message);
-
-        const { data: publicUrlData } = supabaseClient.storage
-          .from(STORAGE_BUCKET)
-          .getPublicUrl(filePath);
-
-        const publicUrl = publicUrlData.publicUrl;
-
-        // --- AI SMART TOPIC & EPISODE VERIFICATION ---
-        showStatus(statusBox, 'loading', '🤖 AI checking certificate topic & episode match...');
-
-        const { data: aiRes, error: aiError } = await supabaseClient.functions.invoke('verify-certificate', {
-          body: {
-            fileUrl: publicUrl,
-            teacherName: currentTeacher.name,
-            expectedTopic: cbp.topic
-          }
-        });
-
-        if (!aiError && aiRes && aiRes.verified === false) {
-          // Delete wrongly uploaded file from storage so it doesn't clutter
-          await supabaseClient.storage.from(STORAGE_BUCKET).remove([filePath]);
-          
-          showStatus(statusBox, 'error', `❌ Verification Failed: ${aiRes.reason || 'Yeh certificate is topic/episode se match nahi ho raha hai.'}`);
-          event.target.value = '';
-          return;
-        }
-
-        showStatus(statusBox, 'loading', '💾 Saving verified record to database...');
-
-        const recordPayload = {
-          teacher_id: currentTeacher.teacher_id,
-          teacher_name: currentTeacher.name,
-          cbp_domain: cbp.domain,
-          cbp_topic: cbp.topic,
-          cbp_date: cbp.date,
-          cbp_hours: cbp.hours,
-          file_path: filePath,
-          file_url: publicUrl,
-          verified: true,
-          uploaded_at: new Date().toISOString()
-        };
-
-        const { data: dbData, error: dbError } = await supabaseClient
+        supabaseClient = window.supabase.createClient(url, key);
+        const { data, error } = await supabaseClient
           .from('cbp_certificates')
-          .upsert(recordPayload, { onConflict: 'teacher_id,cbp_topic' })
-          .select();
+          .select('*')
+          .order('uploaded_at', { ascending: false });
 
-        if (dbError) throw new Error("Database Save Error: " + dbError.message);
-
-        uploadedRecords = uploadedRecords.filter(r =>
-          !(String(r.teacher_id) === String(currentTeacher.teacher_id) && r.cbp_topic === cbp.topic)
-        );
-        uploadedRecords.unshift(dbData ? dbData[0] : recordPayload);
-
+        if (error) throw error;
+        uploadedRecords = data || [];
+        badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400"></span> Supabase Connected`;
         renderAdminRecords();
-        renderTeacherCBPs(currentTeacher);
-        showStatus(statusBox, 'success', '✅ Successfully Verified & Uploaded!');
-
+        if (currentTeacher) renderTeacherCBPs(currentTeacher);
       } catch (err) {
-        console.error(err);
-        showStatus(statusBox, 'error', `⚠️ Error: ${err.message}`);
+        console.error("Supabase init error:", err);
+        badge.innerHTML = `<span class="w-2 h-2 rounded-full bg-amber-400"></span> DB Error`;
       }
     }
 
@@ -431,14 +357,15 @@
         if (existingRecord) uploadedCount++;
 
         const fileInputId = `file-input-${index}`;
+        const previewBoxId = `preview-box-${index}`;
         const statusBoxId = `status-box-${index}`;
 
         const card = document.createElement('div');
         card.className = `bg-white rounded-2xl border ${existingRecord ? 'border-emerald-200 bg-emerald-50/20' : 'border-gray-200'} p-5 shadow-xs transition`;
 
         card.innerHTML = `
-          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div class="space-y-1.5">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div class="space-y-1.5 flex-grow">
               <div class="flex flex-wrap items-center gap-2">
                 <span class="text-xs font-bold px-2.5 py-0.5 rounded-md bg-indigo-100 text-indigo-800">${cbp.domain}</span>
                 <span class="text-xs font-medium text-gray-500">📅 ${cbp.date || 'Date N/A'}</span>
@@ -448,32 +375,39 @@
               <p class="text-xs text-gray-500">Folder Path: <code class="bg-gray-100 px-1.5 py-0.5 rounded text-gray-700">${sanitizeFolderName(teacher.name)}_${teacher.teacher_id}/</code></p>
             </div>
 
-            <div class="flex-shrink-0">
+            <div class="flex flex-col sm:flex-row items-center gap-3 flex-shrink-0">
               ${existingRecord ? `
-                <div class="flex flex-col sm:items-end gap-1.5">
+                <div class="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
                   <span class="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-100 px-3 py-1.5 rounded-full">
                     ✅ Uploaded
                   </span>
                   <div class="flex items-center gap-2">
                     <a href="${existingRecord.file_url}" target="_blank" class="text-xs text-indigo-600 hover:underline font-medium">View File ↗</a>
-                    <label for="${fileInputId}" class="cursor-pointer text-xs text-gray-500 hover:text-gray-800 underline">Re-upload</label>
-                    <input type="file" id="${fileInputId}" accept="application/pdf,image/png,image/jpeg,image/jpg,image/webp" class="hidden" onchange="processAndUploadFile(event, ${index})" />
+                    <button onclick="document.getElementById('${fileInputId}').click()" class="text-xs text-gray-500 hover:text-gray-800 underline bg-transparent border-none cursor-pointer">Replace</button>
                   </div>
                 </div>
               ` : `
-                <div>
-                  <label for="${fileInputId}"
-                    class="cursor-pointer inline-flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-semibold px-4 py-2.5 rounded-xl shadow-xs transition w-full sm:w-auto">
+                <div class="w-full sm:w-auto">
+                  <button onclick="document.getElementById('${fileInputId}').click()"
+                    type="button"
+                    class="cursor-pointer inline-flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white text-sm font-semibold px-4 py-2.5 rounded-xl shadow-xs transition w-full">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
                     </svg>
-                    <span>Upload PDF / Image</span>
-                  </label>
-                  <input type="file" id="${fileInputId}" accept="application/pdf,image/png,image/jpeg,image/jpg,image/webp" class="hidden" onchange="processAndUploadFile(event, ${index})" />
+                    <span>Choose Certificate</span>
+                  </button>
                 </div>
               `}
+              <input type="file" id="${fileInputId}" accept="application/pdf,image/png,image/jpeg,image/jpg" class="hidden" onchange="previewAndConfirmFile(event, ${index})" />
             </div>
           </div>
+
+          <!-- Preview & Upload Confirmation Box -->
+          <div id="${previewBoxId}" class="hidden mt-4 p-3 bg-gray-50 border border-gray-200 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+            <!-- Preview content inserted dynamically -->
+          </div>
+
+          <!-- Status Box -->
           <div id="${statusBoxId}" class="hidden mt-3 pt-3 border-t border-gray-100 text-xs"></div>
         `;
 
@@ -485,35 +419,65 @@
       document.getElementById('stat-pending').textContent = teacher.cbps.length - uploadedCount;
     }
 
-    async function processAndUploadFile(event, cbpIndex) {
+    // STEP 1: Preview file before uploading so teacher can confirm
+    function previewAndConfirmFile(event, cbpIndex) {
       const file = event.target.files[0];
       if (!file) return;
 
-      const statusBox = document.getElementById(`status-box-${cbpIndex}`);
-      statusBox.classList.remove('hidden');
+      const previewBox = document.getElementById(`preview-box-${cbpIndex}`);
+      previewBox.classList.remove('hidden');
 
-      const isPDF = file.type === 'application/pdf';
       const isImage = file.type.startsWith('image/');
+      const fileSizeKB = (file.size / 1024).toFixed(1);
 
-      if (!isPDF && !isImage) {
-        showStatus(statusBox, 'error', '❌ Invalid File: Kripya sirf PDF ya Image (JPG/PNG) file hi upload karein.');
-        event.target.value = '';
-        return;
-      }
+      previewBox.innerHTML = `
+        <div class="flex items-center gap-3">
+          <div class="w-10 h-10 bg-indigo-100 text-indigo-700 rounded-lg flex items-center justify-center font-bold text-xs uppercase">
+            ${file.name.split('.').pop()}
+          </div>
+          <div>
+            <p class="font-bold text-gray-800 truncate max-w-xs">${file.name}</p>
+            <p class="text-gray-500">${fileSizeKB} KB &bull; <span class="text-indigo-600 font-semibold">Ready to upload</span></p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 w-full sm:w-auto justify-end">
+          <button onclick="cancelPreview(${cbpIndex})" type="button" class="px-3 py-1.5 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg font-medium">Cancel</button>
+          <button onclick="uploadConfirmedFile(${cbpIndex})" type="button" class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold shadow-xs">🚀 Confirm & Upload</button>
+        </div>
+      `;
+    }
+
+    function cancelPreview(cbpIndex) {
+      const previewBox = document.getElementById(`preview-box-${cbpIndex}`);
+      previewBox.classList.add('hidden');
+      previewBox.innerHTML = '';
+      document.getElementById(`file-input-${cbpIndex}`).value = '';
+    }
+
+    // STEP 2: Direct Reliable Upload after confirmation
+    async function uploadConfirmedFile(cbpIndex) {
+      const fileInput = document.getElementById(`file-input-${cbpIndex}`);
+      const file = fileInput.files[0];
+      if (!file) return;
+
+      const previewBox = document.getElementById(`preview-box-${cbpIndex}`);
+      const statusBox = document.getElementById(`status-box-${cbpIndex}`);
+      
+      previewBox.classList.add('hidden');
+      statusBox.classList.remove('hidden');
 
       const cbp = currentTeacher.cbps[cbpIndex];
 
       try {
-        showStatus(statusBox, 'loading', '☁️ Uploading certificate to storage...');
+        showStatus(statusBox, 'loading', '☁️ Uploading certificate securely to Supabase...');
 
-        const fileExt = file.name.split('.').pop().toLowerCase() || (isPDF ? 'pdf' : 'jpg');
+        const fileExt = file.name.split('.').pop().toLowerCase() || 'pdf';
         const folderName = `${sanitizeFolderName(currentTeacher.name)}_${currentTeacher.teacher_id}`;
         const cleanTopic = sanitizeFolderName(cbp.topic);
         const filePath = `${folderName}/${cleanTopic}_${Date.now()}.${fileExt}`;
 
         if (!supabaseClient) throw new Error("Supabase connected nahi hai.");
 
-        // 1. Upload file directly to Supabase storage
         const { error: uploadError } = await supabaseClient.storage
           .from(STORAGE_BUCKET)
           .upload(filePath, file, { cacheControl: '3600', upsert: true, contentType: file.type });
@@ -528,7 +492,6 @@
 
         showStatus(statusBox, 'loading', '💾 Saving record to database...');
 
-        // 2. Prepare record payload
         const recordPayload = {
           teacher_id: currentTeacher.teacher_id,
           teacher_name: currentTeacher.name,
@@ -538,11 +501,10 @@
           cbp_hours: cbp.hours,
           file_path: filePath,
           file_url: publicUrl,
-          verified: true, // Direct successful upload & record
+          verified: true,
           uploaded_at: new Date().toISOString()
         };
 
-        // 3. Save to database table
         const { data: dbData, error: dbError } = await supabaseClient
           .from('cbp_certificates')
           .upsert(recordPayload, { onConflict: 'teacher_id,cbp_topic' })
@@ -564,7 +526,7 @@
         showStatus(statusBox, 'error', `⚠️ Error: ${err.message}`);
       }
     }
-    
+
     function sanitizeFolderName(str) {
       return str.trim().replace(/[^a-zA-Z0-9_-]/g, '_').replace(/_+/g, '_');
     }
