@@ -513,7 +513,21 @@
       const cbp = currentTeacher.cbps[cbpIndex];
 
       try {
-        showStatus(statusBox, 'loading', '🔍 Certificate scan & verify ho raha hai...');
+        // --- CHECK 1: DUPLICATE FILE REUSE PREVENTION ---
+        const fileFingerprint = `${file.name}_${file.size}`;
+        const alreadyUsed = uploadedRecords.find(r => 
+          String(r.teacher_id) === String(currentTeacher.teacher_id) &&
+          r.file_fingerprint === fileFingerprint &&
+          r.cbp_topic.toLowerCase().trim() !== cbp.topic.toLowerCase().trim()
+        );
+
+        if (alreadyUsed) {
+          showStatus(statusBox, 'error', `❌ Duplicate Error: Yeh certificate aap pehle hi "${alreadyUsed.cbp_topic}" mein upload kar chuke hain. Har module ke liye alag certificate dalein.`);
+          event.target.value = '';
+          return;
+        }
+
+        showStatus(statusBox, 'loading', '🔍 Smart Certificate Scan & Verification chal raha hai...');
         
         let extractedText = '';
         if (isPDF) {
@@ -527,14 +541,16 @@
         console.log(normalizedText);
         console.log("----------------------------------");
 
+        // --- CHECK 2: SMART NAME & TOPIC VERIFICATION ---
         const verification = verifyCertificateContent(normalizedText, currentTeacher.name, cbp.topic);
 
         if (!verification.isValid) {
-          // Fallback bypass: Agar OCR text read nahi kar paya ya blank hai, toh bhi user ko alert dekar warning ke sath upload allow kar denge
-          console.warn("Verification warning/bypass triggered due to low OCR text confidence.");
+          showStatus(statusBox, 'error', `❌ Upload Rejected: ${verification.reason}`);
+          event.target.value = '';
+          return;
         }
 
-        await uploadToSupabase(file, cbp, cbpIndex, statusBox);
+        await uploadToSupabase(file, cbp, cbpIndex, statusBox, fileFingerprint);
 
       } catch (err) {
         console.error(err);
@@ -547,36 +563,58 @@
     }
 
     function verifyCertificateContent(normalizedFileText, teacherName, cbpTopic) {
-      if (!normalizedFileText || normalizedFileText.length < 3) {
-        return { isValid: true }; // Agar text bilkul read nahi hua tab bhi upload block nahi hoga (Smart Fallback)
+      if (!normalizedFileText || normalizedFileText.length < 5) {
+        return { isValid: false, reason: "File se text read nahi ho paya (Blur image ya empty PDF ho sakti hai)." };
       }
 
-      const nameTokens = normalizeText(teacherName).split(' ').filter(w => w.length >= 3);
-      const nameMatched = nameTokens.length === 0 || nameTokens.some(token => normalizedFileText.includes(token));
+      // 1. Flexible Teacher Name Check (Handles different fonts / spacing in PDFs)
+      const nameParts = normalizeText(teacherName).split(' ').filter(w => w.length >= 2);
+      // At least the main part of the name must match
+      const nameMatched = nameParts.some(part => normalizedFileText.includes(part));
 
-      const cleanTopic = cbpTopic.replace(/[()\-:]/g, ' ');
-      const stopWords = ['in', 'of', 'the', 'and', 'as', 'about', 'for', 'to', 'a', 'vs'];
-      const rawTokens = normalizeText(cleanTopic).split(' ').filter(w => w.length >= 1 && !stopWords.includes(w));
-      const uniqueTopicTokens = [...new Set(rawTokens)];
+      if (!nameMatched) {
+        return { isValid: false, reason: `Certificate mein selected teacher ka naam ("${teacherName}") match nahi hua. Kripya apna hi certificate upload karein.` };
+      }
 
-      let matchedKeywords = [];
-      uniqueTopicTokens.forEach(token => {
-        if (normalizedFileText.includes(token)) {
-          matchedKeywords.push(token);
+      // 2. Topic & Episode Number Validation
+      const lowerTopic = cbpTopic.toLowerCase();
+
+      if (lowerTopic.includes('eklavya')) {
+        const epMatch = lowerTopic.match(/ep\s*([0-9]+)/);
+        const epNum = epMatch ? epMatch[1] : null;
+
+        const hasEklavya = normalizedFileText.includes('eklavya') || normalizedFileText.includes('3030');
+        const hasEp = epNum ? (normalizedFileText.includes(epNum) || normalizedFileText.includes(`ep ${epNum}`) || normalizedFileText.includes(`episode ${epNum}`)) : true;
+
+        if (!hasEklavya || !hasEp) {
+          return { 
+            isValid: false, 
+            reason: `Yeh certificate "${cbpTopic}" ka nahi lag raha hai (Episode number mismatch). Sahi episode ka certificate upload karein.` 
+          };
         }
-      });
+      } else {
+        // For CBSE CBP / Active Learning / Storytelling etc.
+        const cleanTopic = cbpTopic.replace(/[()\-:]/g, ' ');
+        const stopWords = ['in', 'of', 'the', 'and', 'as', 'about', 'for', 'to', 'a', 'vs', 'senior', 'secondary', 'one', 'day'];
+        const rawTokens = normalizeText(cleanTopic).split(' ').filter(w => w.length >= 3 && !stopWords.includes(w));
+        const uniqueTokens = [...new Set(rawTokens)];
 
-      // Flexible matching: Agar naam match ho jaye ya koi bhi keyword mil jaye toh valid
-      const topicMatched = (uniqueTopicTokens.length === 0) || (matchedKeywords.length > 0) || (normalizedFileText.length > 0);
-
-      if (!nameMatched && !topicMatched) {
-        return { isValid: false, reason: "Certificate details match nahi hue." };
+        // If specific unique topic keywords exist, ensure at least one matches
+        if (uniqueTokens.length > 0) {
+          const matchedAny = uniqueTokens.some(t => normalizedFileText.includes(t));
+          if (!matchedAny && !normalizedFileText.includes('cbse') && !normalizedFileText.includes('capacity building')) {
+            return { 
+              isValid: false, 
+              reason: `Topic ("${cbpTopic}") ke keywords certificate se match nahi hue. Sahi course ka certificate upload karein.` 
+            };
+          }
+        }
       }
 
       return { isValid: true };
     }
 
-    async function uploadToSupabase(file, cbp, cbpIndex, statusBox) {
+    async function uploadToSupabase(file, cbp, cbpIndex, statusBox, fileFingerprint) {
       showStatus(statusBox, 'loading', '☁️ Verified! Supabase Storage mein upload ho raha hai...');
 
       if (!supabaseClient) {
@@ -590,6 +628,7 @@
             cbp_date: cbp.date,
             cbp_hours: cbp.hours,
             file_url: fakeUrl,
+            file_fingerprint: fileFingerprint,
             verified: true,
             uploaded_at: new Date().toISOString()
           });
@@ -627,6 +666,7 @@
         cbp_hours: cbp.hours,
         file_path: filePath,
         file_url: publicUrl,
+        file_fingerprint: fileFingerprint,
         verified: true,
         uploaded_at: new Date().toISOString()
       };
@@ -654,10 +694,10 @@
       for (let i = 1; i <= pdf.numPages; i++) {
         const page = await pdf.getPage(i);
         const textContent = await page.getTextContent();
-        fullText += ' ' + textContent.items.map(item => item.str).join(' ');
+        fullText += ' ' + textContent.items.mark ? '' : textContent.items.map(item => item.str).join(' ');
       }
 
-      if (fullText.trim().length < 20) {
+      if (fullText.trim().length < 30) {
         for (let i = 1; i <= pdf.numPages; i++) {
           const page = await pdf.getPage(i);
           const viewport = page.getViewport({ scale: 1.5 });
@@ -723,7 +763,7 @@
       ]);
       const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
       const link = document.createElement("a");
-      link.setAttribute("href", encodeURI(csvContent));
+      link.setAttribute("href", encodeURI(csvContext = encodeURI(csvContent)));
       link.setAttribute("download", `CBP_Uploaded_Certificates_${new Date().toISOString().slice(0,10)}.csv`);
       document.body.appendChild(link);
       link.click();
